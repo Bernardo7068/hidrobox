@@ -2,5 +2,9 @@
   {
     "type": "sqlite",
     "path": "c:\\Users\\Bernardo\\Desktop\\HidroBox\\api\\database\\database.sqlite"
+  },
+  {
+    "type": "sqlite",
+    "path": "c:\\Users\\Bernardo\\HidroBox\\api\\database\\database.sqlite"
   }
 ]

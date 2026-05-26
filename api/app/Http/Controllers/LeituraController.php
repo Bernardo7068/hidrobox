@@ -6,10 +6,12 @@ use App\Http\Requests\LeituraRequest;
 use App\Models\Leitura;
 use App\Models\LimiteSensor;
 use App\Models\Alerta;
+use App\Models\Boia;
 use Illuminate\Http\JsonResponse;
 use Symfony\Component\HttpFoundation\Response;
 use Illuminate\Support\Facades\DB;
-use Log;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Http\Request;
 
 class LeituraController extends Controller
 {
@@ -43,15 +45,30 @@ class LeituraController extends Controller
                 if ($limite) {
                     if ($item['valor'] < $limite->valor_minimo || $item['valor'] > $limite->valor_maximo) {
                         
-                        Alerta::create([
-                            'leitura_id' => $leitura->id,
-                            'boia_id'    => $validated['boia_id'],
-                            'gravidade'  => 'alta',
-                            'descricao'  => "Sensor ID {$item['tipo_sensor_id']} registou {$item['valor']}. Limites: [{$limite->valor_minimo} - {$limite->valor_maximo}].",
-                            'resolvido'  => false
-                        ]);
+                        // ========================================================================
+                        // [NOVA LÓGICA ANTI-SPAM DE ALERTAS]
+                        // Verifica se JÁ EXISTE um alerta por resolver para esta boia e sensor
+                        // ========================================================================
+                        $alertaPendente = Alerta::where('boia_id', $validated['boia_id'])
+                            ->where('resolvido', 0) // 0 ou false (ainda não resolvido pelo técnico)
+                            ->whereHas('leitura', function($query) use ($item) {
+                                // Garante que o alerta antigo é sobre o MESMO TIPO de sensor
+                                $query->where('tipo_sensor_id', $item['tipo_sensor_id']);
+                            })
+                            ->exists();
 
-                        $alertasGerados++;
+                        // Só cria um alerta novo se a equipa não tiver nenhum pendente no ecrã!
+                        if (!$alertaPendente) {
+                            Alerta::create([
+                                'leitura_id' => $leitura->id,
+                                'boia_id'    => $validated['boia_id'],
+                                'gravidade'  => 'alta',
+                                'descricao'  => "O sensor registou {$item['valor']}. Está fora dos limites operacionais seguros [{$limite->valor_minimo} a {$limite->valor_maximo}].",
+                                'resolvido'  => false
+                            ]);
+
+                            $alertasGerados++;
+                        }
                     }
                 }
             }
@@ -76,5 +93,28 @@ class LeituraController extends Controller
                 'mensagem' => 'Não foi possível processar os dados dos sensores.'
             ], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
+    }
+
+    public function historico($boiaId, Request $request)
+    {
+        $user = $request->user();
+        $boia = Boia::with('zona')->find($boiaId);
+
+        if (!$boia) {
+            return response()->json(['sucesso' => false, 'mensagem' => 'Boia não encontrada.'], 404);
+        }
+
+        // Proteção Multi-Tenant
+        if ($user && $user->role !== 'super_admin' && $boia->zona->empresa_id !== $user->empresa_id) {
+            return response()->json(['sucesso' => false, 'mensagem' => 'Acesso negado.'], 403);
+        }
+
+        $historico = Leitura::where('boia_id', $boiaId)
+            ->with('tipoSensor')
+            ->orderBy('data_hora', 'desc')
+            ->limit(100)
+            ->get();
+
+        return response()->json($historico);
     }
 }

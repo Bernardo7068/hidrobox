@@ -13,8 +13,14 @@ class Zona extends Model
         'nome', 
         'concelho', 
         'descricao', 
-        'user_id'
+        'user_id',
+        'empresa_id'
     ];
+
+    public function empresa()
+    {
+        return $this->belongsTo(Empresa::class);
+    }
 
     public function user()
     {

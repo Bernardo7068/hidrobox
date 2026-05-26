@@ -13,8 +13,9 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
-        'auth.gateway' => \App\Http\Middleware\CheckLoraGatewayToken::class,
-    ]);
+            'auth.gateway' => \App\Http\Middleware\CheckLoraGatewayToken::class,
+            'role' => \App\Http\Middleware\CheckRole::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

@@ -13,7 +13,8 @@ class LimiteSensor extends Model
         'boia_id',
         'tipo_sensor_id',
         'valor_minimo',
-        'valor_maximo'
+        'valor_maximo',
+        'status'
     ];
 
     // AQUI ESTÁ A RELAÇÃO QUE ELE NÃO ESTAVA A ENCONTRAR: tem de ter o _
