@@ -29,7 +29,17 @@ class LeituraController extends Controller
             $agora = now();
 
             foreach ($validated['leituras'] as $item) {
-                // 1. Grava a leitura
+                // 1. Verificação de Integridade de Hardware
+                // O sensorId enviado pelo ESP32 tem de existir na tabela mestre 'tipos_sensor'
+                // para podermos associar limites e ícones na UI.
+                $sensorMestre = DB::table('tipos_sensor')->where('id', $item['tipo_sensor_id'])->first();
+                
+                if (!$sensorMestre) {
+                    Log::warning("Hardware tentou ligar sensor com ID desconhecido no sistema: {$item['tipo_sensor_id']}. Adicione o tipo de sensor na tabela 'tipos_sensor' primeiro.");
+                    continue; // Ignora para evitar erro de Foreign Key
+                }
+
+                // 2. Grava a leitura (O tipo_sensor_id já foi validado acima)
                 $leitura = Leitura::create([
                     'boia_id'        => $validated['boia_id'],
                     'tipo_sensor_id' => $item['tipo_sensor_id'],
@@ -37,13 +47,27 @@ class LeituraController extends Controller
                     'data_hora'      => $agora
                 ]);
 
-                // 2. Verifica se o valor rebenta os limites definidos para este sensor nesta boia
                 $limite = LimiteSensor::where('boia_id', $validated['boia_id'])
                                       ->where('tipo_sensor_id', $item['tipo_sensor_id'])
                                       ->first();
 
-                if ($limite) {
+                // 3. Auto-Discovery Contextual: Se o sensor existe no sistema mas não está nesta boia
+                if (!$limite) {
+                    LimiteSensor::create([
+                        'boia_id' => $validated['boia_id'],
+                        'tipo_sensor_id' => $item['tipo_sensor_id'],
+                        'valor_minimo' => 0,
+                        'valor_maximo' => 0,
+                        'is_configurado' => false, 
+                        'ultima_manutencao' => now()
+                    ]);
+                    continue; 
+                }
+
+                // 4. Verificação de Alertas (Apenas se o técnico já validou a configuração)
+                if ($limite->is_configurado) {
                     if ($item['valor'] < $limite->valor_minimo || $item['valor'] > $limite->valor_maximo) {
+                        // ... (lógica de alerta existente)
                         
                         // ========================================================================
                         // [NOVA LÓGICA ANTI-SPAM DE ALERTAS]

@@ -18,11 +18,11 @@ class EmpresaController extends Controller
         $validated = $request->validate([
             'nome' => 'required|string|unique:empresas,nome',
             'nif'  => 'required|string|unique:empresas,nif',
-            // Agora o admin pode ser um ID existente ou novos dados
+            // Agora o admin é opcional no momento da criação da empresa
             'admin_id'       => 'nullable|exists:users,id',
-            'admin_nome'     => 'required_without:admin_id|string',
-            'admin_email'    => 'required_without:admin_id|email|unique:users,email',
-            'admin_password' => 'required_without:admin_id|min:6',
+            'admin_nome'     => 'nullable|string',
+            'admin_email'    => 'nullable|email|unique:users,email',
+            'admin_password' => 'nullable|min:6',
         ]);
 
         return \DB::transaction(function () use ($validated, $request) {
@@ -38,8 +38,8 @@ class EmpresaController extends Controller
                     'empresa_id' => $empresa->id,
                     'role'       => 'admin_empresa'
                 ]);
-            } else {
-                // Criar novo user
+            } elseif ($request->filled('admin_nome') && $request->filled('admin_email')) {
+                // Criar novo user se os dados forem fornecidos
                 $user = \App\Models\User::create([
                     'name'       => $validated['admin_nome'],
                     'email'      => $validated['admin_email'],
@@ -51,9 +51,8 @@ class EmpresaController extends Controller
 
             return response()->json([
                 'sucesso' => true,
-                'mensagem' => 'Empresa e Administrador configurados com sucesso!',
+                'mensagem' => 'Empresa configurada com sucesso!',
                 'empresa' => $empresa,
-                'admin'   => $user
             ], 201);
         });
     }
@@ -67,5 +66,22 @@ class EmpresaController extends Controller
 
         $empresa->delete();
         return response()->json(['sucesso' => true, 'mensagem' => 'Empresa removida.']);
+    }
+
+    public function update(Request $request, $id)
+    {
+        $empresa = Empresa::find($id);
+        if (!$empresa) {
+            return response()->json(['mensagem' => 'Empresa não encontrada'], 404);
+        }
+
+        $validated = $request->validate([
+            'nome' => 'sometimes|string|unique:empresas,nome,' . $id,
+            'nif'  => 'sometimes|string|unique:empresas,nif,' . $id,
+        ]);
+
+        $empresa->update($validated);
+
+        return response()->json(['sucesso' => true, 'empresa' => $empresa]);
     }
 }

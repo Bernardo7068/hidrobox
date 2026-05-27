@@ -14,7 +14,9 @@ class LimiteSensor extends Model
         'tipo_sensor_id',
         'valor_minimo',
         'valor_maximo',
-        'status'
+        'ultima_manutencao',
+        'dias_proxima_manutencao',
+        'is_configurado'
     ];
 
     // AQUI ESTÁ A RELAÇÃO QUE ELE NÃO ESTAVA A ENCONTRAR: tem de ter o _

@@ -22,6 +22,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // 0.1 Gestão Multi-Tenant (Apenas Admins)
     Route::get('/empresas', [EmpresaController::class, 'index'])->middleware('role:super_admin');
     Route::post('/empresas', [EmpresaController::class, 'store'])->middleware('role:super_admin');
+    Route::put('/empresas/{id}', [EmpresaController::class, 'update'])->middleware('role:super_admin');
+    Route::delete('/empresas/{id}', [EmpresaController::class, 'destroy'])->middleware('role:super_admin');
     
     Route::get('/users', [UserController::class, 'index'])->middleware('role:super_admin,admin_empresa');
     Route::post('/users', [UserController::class, 'store'])->middleware('role:super_admin,admin_empresa');

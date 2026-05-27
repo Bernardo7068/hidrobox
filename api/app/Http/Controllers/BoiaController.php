@@ -103,7 +103,8 @@ class BoiaController extends Controller
             'tipo_sensor_id' => 'required|integer|exists:tipos_sensor,id',
             'valor_minimo' => 'required|numeric',
             'valor_maximo' => 'required|numeric',
-            'status' => 'nullable|string|in:ativo,erro,calibracao,desconectado'
+            'status' => 'nullable|string|in:ativo,erro,calibracao,desconectado',
+            'dias_proxima_manutencao' => 'nullable|integer'
         ]);
 
         $boia = Boia::with('zona')->find($validated['boia_id']);
@@ -121,7 +122,10 @@ class BoiaController extends Controller
             [
                 'valor_minimo' => $validated['valor_minimo'],
                 'valor_maximo' => $validated['valor_maximo'],
-                'status' => $validated['status'] ?? 'ativo'
+                'status' => $validated['status'] ?? 'ativo',
+                'ultima_manutencao' => now(), // Assume-se que se está a configurar/calibrar, houve manutenção
+                'dias_proxima_manutencao' => $validated['dias_proxima_manutencao'] ?? 180,
+                'is_configurado' => true // Validado pelo humano
             ]
         );
 

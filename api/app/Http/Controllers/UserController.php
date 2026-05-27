@@ -62,8 +62,10 @@ class UserController extends Controller
         }
 
         $validated = $request->validate([
-            'name' => 'sometimes|string',
-            'role' => 'sometimes|in:admin_empresa,tecnico_empresa,leitor_empresa',
+            'name'       => 'sometimes|string',
+            'email'      => 'sometimes|email|unique:users,email,' . $id,
+            'role'       => 'sometimes|in:admin_empresa,tecnico_empresa,leitor_empresa,super_admin',
+            'empresa_id' => 'sometimes|nullable|exists:empresas,id',
         ]);
 
         $user->update($validated);

@@ -16,7 +16,7 @@ class LeituraRequest extends FormRequest
         return [
             'boia_id' => 'required|integer|exists:boias,id', // Garante que a boia existe na BD
             'leituras' => 'required|array|min:1', // Tem de enviar pelo menos 1 leitura
-            'leituras.*.tipo_sensor_id' => 'required|integer|exists:tipos_sensor,id', // O sensor tem de existir
+            'leituras.*.tipo_sensor_id' => 'required|integer', // Permite auto-discovery de novos IDs
             'leituras.*.valor' => 'required|numeric', // O valor tem de ser um número válido (float/int)
         ];
     }

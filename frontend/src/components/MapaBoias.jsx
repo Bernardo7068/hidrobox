@@ -21,27 +21,25 @@ export default function MapaBoias({ boias = [] }) {
     const boiaComGPS = boias.find(b => b.latitude && b.longitude);
     const center = boiaComGPS ? [parseFloat(boiaComGPS.latitude), parseFloat(boiaComGPS.longitude)] : centroPadrao;
 
-    const getIcon = (id) => {
-        const icons = {
-            1: '🫧', // Oxigénio
-            2: '⚗️', // pH
-            3: '🌡️', // Temperatura
-            4: '⚡', // Condutividade
-            5: '🌫️', // Turbidez
-            6: '🧂', // Salinidade
-            7: '🌊', // Nível
-            8: '🔋', // ORP
+    const getSensorInfo = (tipoId) => {
+        const info = {
+            1: { nome: 'Oxigénio', icon: '🫧', unidade: 'mg/L' },
+            2: { nome: 'pH', icon: '⚗️', unidade: 'pH' },
+            3: { nome: 'Temperatura', icon: '🌡️', unidade: 'ºC' },
+            4: { nome: 'Condutividade', icon: '⚡', unidade: 'µS/cm' },
+            5: { nome: 'Turbidez', icon: '🌫️', unidade: 'NTU' },
+            6: { nome: 'Salinidade', icon: '🧂', unidade: 'ppm' },
         };
-        return icons[id] || '📊';
+        return info[tipoId] || { nome: 'Sensor', icon: '📊', unidade: '' };
     };
 
     return (
-        <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden h-[500px] relative group">
-            <div className="absolute top-4 left-4 z-[1000] bg-white/90 backdrop-blur shadow-lg border border-slate-100 rounded-xl p-3 pointer-events-none">
-                <h2 className="text-sm font-black text-slate-800 uppercase tracking-tighter flex items-center gap-2">
-                    <span className="text-blue-600">🛰️</span> Georeferenciação de Ativos
+        <div className="bg-white rounded-[2rem] shadow-xl border border-slate-100 overflow-hidden h-[600px] relative group">
+            <div className="absolute top-6 left-6 z-[1000] bg-white/95 backdrop-blur shadow-2xl border border-slate-100 rounded-2xl p-4 pointer-events-none">
+                <h2 className="text-lg font-black text-slate-800 tracking-tight flex items-center gap-2">
+                    <span className="animate-pulse">🔵</span> Monitorização de Georefereciação
                 </h2>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Tempo Real • Rede HidroBox</p>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Rio Lis • Leiria, Portugal</p>
             </div>
 
             <MapContainer 
@@ -63,36 +61,46 @@ export default function MapaBoias({ boias = [] }) {
                             key={boia.id} 
                             position={[parseFloat(boia.latitude), parseFloat(boia.longitude)]}
                         >
-                            <Popup minWidth={250} className="custom-popup">
-                                <div className="p-2 space-y-4">
-                                    <div className="border-b pb-2">
-                                        <div className="text-xs font-black text-blue-600 uppercase tracking-widest mb-1">ID Estação: #{boia.id}</div>
-                                        <div className="text-lg font-black text-slate-800 uppercase leading-none">{boia.nome}</div>
-                                        <div className="text-[10px] text-slate-400 font-bold mt-1 uppercase italic">{boia.localizacao_texto || 'Margem do Rio Lis'}</div>
-                                    </div>
-
-                                    <div className="space-y-2">
-                                        <div className="flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-100">
-                                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-tighter">Estado do Sistema</span>
-                                            <span className="text-[10px] font-black text-emerald-600 flex items-center gap-1">● ONLINE</span>
+                            <Popup minWidth={300} className="custom-popup">
+                                <div className="p-4 space-y-6">
+                                    <div className="border-b border-slate-100 pb-4">
+                                        <div className="flex justify-between items-start mb-2">
+                                            <span className="text-[10px] font-black bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full uppercase tracking-widest">Estação #{boia.id}</span>
+                                            <span className="flex items-center gap-1 text-[10px] font-black text-emerald-600">
+                                                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span> ONLINE
+                                            </span>
                                         </div>
-                                        <div className="flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-100">
-                                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-tighter">Bateria Local</span>
-                                            <span className="text-[10px] font-black text-slate-800">{boia.bateria}%</span>
+                                        <div className="text-2xl font-black text-slate-800 tracking-tighter leading-none">{boia.nome}</div>
+                                        <div className="text-xs text-slate-400 font-bold mt-2 flex items-center gap-1">
+                                            📍 {boia.localizacao_texto || 'Margem do Rio Lis'}
                                         </div>
                                     </div>
 
-                                    <div className="grid grid-cols-2 gap-2 mt-4">
-                                        {boia.leituras?.slice(-4).map(leitura => (
-                                            <div key={leitura.id} className="bg-white border border-slate-100 p-2 rounded-lg shadow-sm">
-                                                <div className="text-[8px] font-bold text-slate-400 uppercase leading-none mb-1">
-                                                    {getIcon(leitura.tipo_sensor_id)}
+                                    <div className="grid grid-cols-2 gap-3">
+                                        {/* Agrupar e mostrar as últimas leituras com labels claros */}
+                                        {boia.leituras?.slice(-4).map(leitura => {
+                                            const info = getSensorInfo(leitura.tipo_sensor_id);
+                                            return (
+                                                <div key={leitura.id} className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter mb-1 flex items-center gap-1">
+                                                        {info.icon} {info.nome}
+                                                    </div>
+                                                    <div className="text-lg font-black text-slate-800 flex items-baseline gap-1">
+                                                        {leitura.valor} <span className="text-[10px] text-slate-400">{info.unidade}</span>
+                                                    </div>
                                                 </div>
-                                                <div className="text-xs font-black text-slate-800">
-                                                    {leitura.valor} <small className="text-[8px] opacity-40">VAL</small>
-                                                </div>
-                                            </div>
-                                        ))}
+                                            );
+                                        })}
+                                    </div>
+
+                                    <div className="space-y-3 pt-2">
+                                        <div className="flex justify-between items-center text-xs font-bold px-1">
+                                            <span className="text-slate-400 uppercase tracking-widest">Nível de Bateria</span>
+                                            <span className="text-slate-800">{boia.bateria}%</span>
+                                        </div>
+                                        <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                                            <div className="bg-emerald-500 h-full transition-all duration-500" style={{ width: `${boia.bateria}%` }}></div>
+                                        </div>
                                     </div>
 
                                     <div className="pt-2">
@@ -100,9 +108,9 @@ export default function MapaBoias({ boias = [] }) {
                                             href={`https://www.google.com/maps?q=${boia.latitude},${boia.longitude}`}
                                             target="_blank"
                                             rel="noreferrer"
-                                            className="block text-center bg-slate-900 text-white py-2 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-blue-600 transition-all shadow-md"
+                                            className="block text-center bg-blue-600 text-white py-3 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg shadow-blue-100"
                                         >
-                                            Abrir Navegação GPS 📍
+                                            Navegar para Local 🚀
                                         </a>
                                     </div>
                                 </div>
@@ -114,13 +122,13 @@ export default function MapaBoias({ boias = [] }) {
 
             <style>{`
                 .leaflet-container {
-                    filter: grayscale(0.2) contrast(1.1);
+                    filter: saturate(1.2) contrast(1.05);
                 }
                 .leaflet-popup-content-wrapper {
-                    border-radius: 1.5rem !important;
+                    border-radius: 2rem !important;
                     padding: 0 !important;
                     overflow: hidden;
-                    box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1) !important;
+                    box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.15) !important;
                 }
                 .leaflet-popup-content {
                     margin: 0 !important;
@@ -128,6 +136,10 @@ export default function MapaBoias({ boias = [] }) {
                 }
                 .leaflet-popup-tip-container {
                     display: none;
+                }
+                .custom-popup .leaflet-popup-close-button {
+                    padding: 12px !important;
+                    color: #94a3b8 !important;
                 }
             `}</style>
         </div>

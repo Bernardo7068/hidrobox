@@ -18,7 +18,8 @@ class Boia extends Model
         'zona_id', 
         'estado', 
         'bateria',
-        'localizacao_texto'
+        'localizacao_texto',
+        'ultima_manutencao'
     ];
 
     public function zona()
