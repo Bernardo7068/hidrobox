@@ -1,20 +1,22 @@
+import Tooltip from './Tooltip';
+
 export default function Sidebar({ setAbaAtiva, abaAtiva, role, onLogout }) {
   const baseClass = "group relative block p-4 rounded-2xl transition-all duration-300 font-bold cursor-pointer flex items-center gap-4 border-2 border-transparent";
   const activeClass = "bg-white text-blue-900 shadow-xl shadow-blue-900/20 border-blue-200 scale-[1.02]";
   const inactiveClass = "text-blue-100 hover:bg-blue-800/50 hover:border-blue-700/50";
 
   const menuItems = [
-    { id: 'visao-geral', label: 'Resumo Operacional', icon: '📊', desc: 'Saúde da Rede e Alertas' },
-    { id: 'mapa', label: 'Mapa de Ativos', icon: '🌍', desc: 'Localização Geográfica' },
-    { id: 'equipamentos', label: 'Gestão Técnica', icon: '⚙️', desc: 'Hardware e Manutenção' },
+    { id: 'guia', label: 'Guia do Sistema', icon: '📖', desc: 'Aprender a usar o HidroBox' },
+    { id: 'visao-geral', label: 'Estado da Rede', icon: '📊', desc: 'Resumo e Alertas Atuais' },
+    { id: 'mapa', label: 'Mapa das Estações', icon: '🌍', desc: 'Localização no Rio' },
+    { id: 'estatisticas', label: 'Histórico e Dados', icon: '📈', desc: 'Análise da Qualidade' },
+    { id: 'equipamentos', label: 'Gestão de Aparelhos', icon: '⚙️', desc: 'Boias e Configurações' },
   ];
 
   if (role === 'super_admin') {
-    menuItems.push({ id: 'super-admin', label: 'Clientes', icon: '👑', desc: 'Gestão Multi-Empresa' });
-  }
-
-  if (role === 'admin_empresa' || role === 'super_admin') {
-    menuItems.push({ id: 'admin-empresa', label: 'Equipa', icon: '👥', desc: 'Gestão de Utilizadores' });
+    menuItems.push({ id: 'super-admin', label: 'Administração', icon: '👑', desc: 'Empresas e Utilizadores' });
+  } else if (role === 'admin_empresa') {
+    menuItems.push({ id: 'admin-empresa', label: 'Gestão de Equipa', icon: '👥', desc: 'Membros da Unidade' });
   }
 
   return (
@@ -31,42 +33,46 @@ export default function Sidebar({ setAbaAtiva, abaAtiva, role, onLogout }) {
           Hidro<span className="text-blue-400">Box</span>
         </h1>
         <div className="mt-3 bg-blue-400/20 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-[0.2em] text-blue-300 border border-blue-400/30">
-           {role.replace('_', ' ')}
+           {role === 'super_admin' ? 'Administrador Geral' : role === 'admin_empresa' ? 'Gestor de Equipa' : role === 'tecnico_empresa' ? 'Técnico de Campo' : 'Observador / Leitor'}
         </div>
       </div>
 
       {/* Navegação Principal */}
-      <nav className="flex-1 p-6 space-y-4 mt-4 relative z-10 overflow-y-auto">
-        <p className="text-[10px] font-black text-blue-400/50 uppercase tracking-[0.3em] mb-6 px-2">Menu de Navegação</p>
+      <nav className="flex-1 p-6 space-y-4 mt-4 relative z-10 overflow-y-auto overflow-x-hidden">
+        <p className="text-[10px] font-black text-blue-400/50 uppercase tracking-[0.3em] mb-6 px-2">Menu Principal</p>
         
         {menuItems.map(item => (
-          <div 
-            key={item.id}
-            onClick={() => setAbaAtiva(item.id)}
-            className={`${baseClass} ${abaAtiva === item.id ? activeClass : inactiveClass}`}
-          >
-            <span className="text-2xl">{item.icon}</span>
-            <div className="flex flex-col">
-                <span className="leading-none">{item.label}</span>
-                <span className={`text-[10px] mt-1 font-medium ${abaAtiva === item.id ? 'text-blue-600' : 'text-blue-300/60'}`}>
-                    {item.desc}
-                </span>
+          <Tooltip key={item.id} text={item.desc} position="right">
+            <div 
+              id={`sidebar-${item.id}`}
+              onClick={() => setAbaAtiva(item.id)}
+              className={`${baseClass} ${abaAtiva === item.id ? activeClass : inactiveClass} w-full`}
+            >
+              <span className="text-2xl">{item.icon}</span>
+              <div className="flex flex-col">
+                  <span className="leading-none text-sm">{item.label}</span>
+                  <span className={`text-[10px] mt-1 font-bold tracking-tight uppercase opacity-60 ${abaAtiva === item.id ? 'text-blue-600' : 'text-blue-300/80'}`}>
+                      {item.id.replace('-', ' ')}
+                  </span>
+              </div>
+              {abaAtiva === item.id && (
+                  <div className="absolute right-4 w-1.5 h-1.5 bg-blue-600 rounded-full"></div>
+              )}
             </div>
-            {abaAtiva === item.id && (
-                <div className="absolute right-4 w-1.5 h-1.5 bg-blue-600 rounded-full"></div>
-            )}
-          </div>
+          </Tooltip>
         ))}
       </nav>
 
       {/* Rodapé e Logout */}
       <div className="p-6 border-t border-blue-800 relative z-10 bg-slate-900/40">
-        <button 
-            onClick={onLogout}
-            className="w-full bg-rose-600 hover:bg-rose-700 text-white p-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-3 shadow-lg shadow-rose-900/20 active:scale-95"
-        >
-            🚪 Sair do Sistema
-        </button>
+        <Tooltip text="Encerrar a sessão e sair" position="top">
+            <button 
+                onClick={onLogout}
+                className="w-full bg-rose-600 hover:bg-rose-700 text-white p-4 rounded-2xl font-black text-sm uppercase tracking-widest transition-all flex items-center justify-center gap-3 shadow-lg shadow-rose-900/20 active:scale-95"
+            >
+                🚪 Sair do Sistema
+            </button>
+        </Tooltip>
         <div className="mt-6 flex flex-col items-center opacity-40">
             <div className="text-[9px] font-black uppercase tracking-widest">Protocolo Lis v1.2.0</div>
             <div className="w-12 h-1 bg-blue-400/30 rounded-full mt-2"></div>

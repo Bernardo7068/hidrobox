@@ -10,9 +10,10 @@ class Leitura extends Model
     public $timestamps = false;
 
     protected $fillable = [
-        'boia_id', 
-        'tipo_sensor_id', 
-        'valor', 
+        'boia_id',
+        'tipo_sensor_id',
+        'valor',
+        'rssi',
         'data_hora'
     ];
 

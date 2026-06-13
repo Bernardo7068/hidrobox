@@ -1,7 +1,8 @@
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Circle } from 'react-leaflet';
 import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 
-// Correção para o ícone do Leaflet que costuma quebrar no React/Vite
+// Fix para os ícones do Leaflet
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 
@@ -13,7 +14,15 @@ let DefaultIcon = L.icon({
 });
 L.Marker.prototype.options.icon = DefaultIcon;
 
-export default function MapaBoias({ boias = [] }) {
+// Ícone de Torre de Gateway
+const towerIcon = L.divIcon({
+    html: '<div style="font-size: 24px;">📡</div>',
+    className: 'custom-div-icon',
+    iconSize: [30, 30],
+    iconAnchor: [15, 15]
+});
+
+export default function MapaBoias({ boias = [], gateways = [] }) {
     // Centro inicial do mapa (Rio Lis, Leiria como padrão)
     const centroPadrao = [39.7436, -8.8071];
     
@@ -24,11 +33,11 @@ export default function MapaBoias({ boias = [] }) {
     const getSensorInfo = (tipoId) => {
         const info = {
             1: { nome: 'Oxigénio', icon: '🫧', unidade: 'mg/L' },
-            2: { nome: 'pH', icon: '⚗️', unidade: 'pH' },
-            3: { nome: 'Temperatura', icon: '🌡️', unidade: 'ºC' },
-            4: { nome: 'Condutividade', icon: '⚡', unidade: 'µS/cm' },
-            5: { nome: 'Turbidez', icon: '🌫️', unidade: 'NTU' },
-            6: { nome: 'Salinidade', icon: '🧂', unidade: 'ppm' },
+            2: { nome: 'Temperatura', icon: '🌡️', unidade: 'ºC' },
+            3: { nome: 'Turbidez', icon: '🌫️', unidade: 'NTU' },
+            4: { nome: 'TDS', icon: '🧂', unidade: 'ppm' },
+            5: { nome: 'pH', icon: '⚗️', unidade: 'pH' },
+            6: { nome: 'Condutividade', icon: '⚡', unidade: 'µS/cm' },
         };
         return info[tipoId] || { nome: 'Sensor', icon: '📊', unidade: '' };
     };
@@ -37,9 +46,9 @@ export default function MapaBoias({ boias = [] }) {
         <div className="bg-white rounded-[2rem] shadow-xl border border-slate-100 overflow-hidden h-[600px] relative group">
             <div className="absolute top-6 left-6 z-[1000] bg-white/95 backdrop-blur shadow-2xl border border-slate-100 rounded-2xl p-4 pointer-events-none">
                 <h2 className="text-lg font-black text-slate-800 tracking-tight flex items-center gap-2">
-                    <span className="animate-pulse">🔵</span> Monitorização de Georefereciação
+                    <span className="animate-pulse text-blue-500">🔵</span> Monitorização de Georefereciação
                 </h2>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Rio Lis • Leiria, Portugal</p>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Infraestrutura Ativa • Rio Lis</p>
             </div>
 
             <MapContainer 
@@ -53,12 +62,39 @@ export default function MapaBoias({ boias = [] }) {
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                 />
 
+                {/* --- DESENHAR GATEWAYS --- */}
+                {gateways.map(gw => (
+                    gw.latitude && gw.longitude && (
+                        <div key={`gw-${gw.id}`}>
+                            <Marker position={[parseFloat(gw.latitude), parseFloat(gw.longitude)]} icon={towerIcon}>
+                                <Popup minWidth={200}>
+                                    <div className="p-3 font-black">
+                                        <div className="text-blue-600 uppercase text-[10px] tracking-widest mb-1">Gateway LoRaWAN</div>
+                                        <div className="text-lg uppercase leading-tight">{gw.nome}</div>
+                                        <div className="text-[10px] text-slate-400 font-mono mt-1">{gw.mac_gateway}</div>
+                                        <div className="mt-3 pt-3 border-t border-slate-100 flex justify-between items-center">
+                                            <span className="text-[10px] text-slate-500 uppercase">Alcance Nominal</span>
+                                            <span className="text-xs text-emerald-600">{gw.raio_cobertura}m</span>
+                                        </div>
+                                    </div>
+                                </Popup>
+                            </Marker>
+                            <Circle 
+                                center={[parseFloat(gw.latitude), parseFloat(gw.longitude)]} 
+                                radius={gw.raio_cobertura} 
+                                pathOptions={{ color: '#10b981', fillColor: '#10b981', fillOpacity: 0.05, weight: 1 }}
+                            />
+                        </div>
+                    )
+                ))}
+
+                {/* --- DESENHAR BOIAS --- */}
                 {boias.map(boia => {
                     if (!boia.latitude || !boia.longitude) return null;
 
                     return (
                         <Marker 
-                            key={boia.id} 
+                            key={`boia-${boia.id}`} 
                             position={[parseFloat(boia.latitude), parseFloat(boia.longitude)]}
                         >
                             <Popup minWidth={300} className="custom-popup">
@@ -77,7 +113,6 @@ export default function MapaBoias({ boias = [] }) {
                                     </div>
 
                                     <div className="grid grid-cols-2 gap-3">
-                                        {/* Agrupar e mostrar as últimas leituras com labels claros */}
                                         {boia.leituras?.slice(-4).map(leitura => {
                                             const info = getSensorInfo(leitura.tipo_sensor_id);
                                             return (

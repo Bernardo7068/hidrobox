@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import api from '../api';
+import Tooltip from './Tooltip';
 
-export default function PainelAdminEmpresa() {
+export default function PainelAdminEmpresa({ isHelpMode }) {
     const userLogado = JSON.parse(localStorage.getItem('user') || '{}');
     const [usuarios, setUsuarios] = useState([]);
     const [novoUser, setNovoUser] = useState({ name: '', email: '', password: '', role: 'tecnico_empresa' });
@@ -76,19 +77,21 @@ export default function PainelAdminEmpresa() {
                     </div>
                     <div>
                         <h2 className="text-4xl font-black text-slate-900 uppercase tracking-tight leading-none mb-2">
-                            Gestão de <span className="text-indigo-600">Talento</span>
+                            Gestão de <span className="text-indigo-600">Equipa</span>
                         </h2>
                         <p className="text-slate-400 font-bold uppercase text-xs tracking-[0.3em]">
-                            {userLogado.role === 'super_admin' ? 'Controlo Global de Acessos' : 'Administração de Equipa Local'}
+                            {userLogado.role === 'super_admin' ? 'Controlo Global de Acessos' : 'Administração de Pessoas'}
                         </p>
                     </div>
                 </div>
                 
                 <div className="flex gap-4">
-                    <div className="px-8 py-4 bg-slate-50 rounded-[1.5rem] text-center border border-slate-100">
-                        <p className="text-3xl font-black text-slate-900 leading-none">{usuarios.length}</p>
-                        <p className="text-xs font-black text-slate-400 uppercase tracking-widest mt-1">Colaboradores</p>
-                    </div>
+                    <Tooltip text="Número total de membros da sua unidade" position="left">
+                        <div className="px-8 py-4 bg-slate-50 rounded-[1.5rem] text-center border border-slate-100 cursor-help">
+                            <p className="text-3xl font-black text-slate-900 leading-none">{usuarios.length}</p>
+                            <p className="text-xs font-black text-slate-400 uppercase tracking-widest mt-1">Colaboradores</p>
+                        </div>
+                    </Tooltip>
                 </div>
             </div>
 
@@ -104,37 +107,45 @@ export default function PainelAdminEmpresa() {
                         {usuarios.map(u => (
                             <div key={u.id} className="group bg-white p-6 rounded-[2.5rem] border border-slate-100 hover:border-indigo-200 hover:shadow-xl hover:shadow-indigo-500/5 transition-all duration-500 flex flex-col sm:flex-row items-center justify-between gap-6">
                                 <div className="flex items-center gap-5">
-                                    <div className="h-14 w-14 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-indigo-600 group-hover:text-white font-black text-xl transition-all">
-                                        {u.name.charAt(0).toUpperCase()}
-                                    </div>
+                                    <Tooltip text={`Iniciais de ${u.name}`}>
+                                        <div className="h-14 w-14 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-indigo-600 group-hover:text-white font-black text-xl transition-all cursor-help">
+                                            {u.name.charAt(0).toUpperCase()}
+                                        </div>
+                                    </Tooltip>
                                     <div>
                                         <h4 className="font-black text-slate-900 text-xl leading-none mb-1 uppercase tracking-tight">{u.name}</h4>
                                         <p className="text-sm font-bold text-slate-400 mb-2">{u.email}</p>
-                                        <span className={`px-3 py-1 rounded-lg text-xs font-black uppercase tracking-widest ${
-                                            u.role === 'admin_empresa' ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-50 text-slate-500'
-                                        }`}>
-                                            {getRoleLabel(u.role)}
-                                        </span>
+                                        <Tooltip text="Nível de permissões no sistema" position="right">
+                                            <span className={`px-3 py-1 rounded-lg text-xs font-black uppercase tracking-widest cursor-help ${
+                                                u.role === 'admin_empresa' ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-50 text-slate-500'
+                                            }`}>
+                                                {getRoleLabel(u.role)}
+                                            </span>
+                                        </Tooltip>
                                     </div>
                                 </div>
 
                                 <div className="flex items-center gap-3">
-                                    <button 
-                                        onClick={() => setEditandoUser(u)}
-                                        className="p-3 bg-slate-50 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 rounded-xl transition-all border border-slate-100"
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                        </svg>
-                                    </button>
-                                    <button 
-                                        onClick={() => handleRemover(u.id)}
-                                        className="p-3 bg-slate-50 text-slate-400 hover:bg-rose-50 hover:text-rose-600 rounded-xl transition-all border border-slate-100"
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                        </svg>
-                                    </button>
+                                    <Tooltip text="Alterar dados do utilizador" position="left">
+                                        <button 
+                                            onClick={() => setEditandoUser(u)}
+                                            className="p-3 bg-slate-50 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 rounded-xl transition-all border border-slate-100"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                            </svg>
+                                        </button>
+                                    </Tooltip>
+                                    <Tooltip text="Remover da equipa" position="left">
+                                        <button 
+                                            onClick={() => handleRemover(u.id)}
+                                            className="p-3 bg-slate-50 text-slate-400 hover:bg-rose-50 hover:text-rose-600 rounded-xl transition-all border border-slate-100"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                            </svg>
+                                        </button>
+                                    </Tooltip>
                                 </div>
                             </div>
                         ))}

@@ -25,7 +25,7 @@ return new class extends Migration
             $table->decimal('longitude', 11, 8)->nullable();
             $table->foreignId('zona_id')->constrained('zonas')->onDelete('cascade');
             $table->string('localizacao_texto')->nullable();
-            $table->string('estado')->default('ativa');
+            $table->string('estado')->default('pendente');
             $table->integer('bateria')->default(100);
             $table->timestamps();
         });

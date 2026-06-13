@@ -1,141 +1,165 @@
+#include <SPI.h>
+#include <LoRa.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
+#include "mbedtls/aes.h"
+#include <esp_mac.h>
 
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 64
-#define OLED_RESET    -1
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+// --- CONFIGURAÇÃO ---
+#define TCXO_EN 12
+const char* ssid = "POCO X3 NFC"; //Vodafone-DB65F2
+const char* password = "60naminha"; //jTdz36hn9D
+const char* serverName = "http://10.196.63.212:8000/api/leituras";
+const char* apiKey = "hidrobox_segredo_2026";
+const String aesKey = "HidroBoxKey2026!";
 
-// Credenciais da tua rede
-const char* ssid = "Vodafone-DB65F2";
-const char* password = "jTdz36hn9D";
+// Pinos LoRa
+#define SCK 5
+#define MISO 19
+#define MOSI 27
+#define SS 18
+#define RST 23
+#define DIO0 26
 
-// Rota local do Laravel (Confirma se o IP do teu PC ainda é o 145!)
-const char* serverName = "http://192.168.1.145:8000/api/leituras"; 
-const char* apiKey = "hidrobox_segredo_2026"; 
+long ultimaMsgId = 0;
+String gatewayMac = ""; // Variável global para guardar o meu MAC
+
+void decrypt(uint8_t* input, int len, uint8_t* output) {
+   mbedtls_aes_context aes;
+   mbedtls_aes_init(&aes);
+   mbedtls_aes_setkey_dec(&aes, (const unsigned char*)aesKey.c_str(), 128);
+   for (int i = 0; i < len; i += 16) {
+     mbedtls_aes_crypt_ecb(&aes, MBEDTLS_AES_DECRYPT, input + i, output + i);
+   }
+   mbedtls_aes_free(&aes);
+}
 
 void setup() {
-  Serial.begin(115200);
-  delay(1000);
-  
-  // Inicializa o ecrã OLED
-  Wire.begin(21, 22);
-  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { 
-    Serial.println("Falha ao inicializar o OLED");
-  }
-  
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0,0);
-  display.println("HIDROBOX - BOIA 1");
-  display.println("--------------------");
-  display.println("A ligar ao Wi-Fi...");
-  display.display();
+   Serial.begin(115200);
+   delay(2000);
 
-  // Configuração de Wi-Fi "Paciente"
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-  
-  // O loop apenas espera. Não reinicia a placa, apenas imprime pontos.
-  while(WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-    display.print(".");
-    display.display();
-  }
-  
-  // Sucesso na ligação!
-  Serial.println("\n[+] Wi-Fi Conectado!");
-  display.clearDisplay();
-  display.setCursor(0,0);
-  display.println("Wi-Fi LIGADO!");
-  display.printf("IP: %s\n", WiFi.localIP().toString().c_str());
-  display.display();
-  delay(2000);
+   pinMode(TCXO_EN, OUTPUT);
+   digitalWrite(TCXO_EN, HIGH);
+   delay(100);
+
+   // 1. Ler o MAC
+   uint8_t mac[6];
+   esp_read_mac(mac, ESP_MAC_WIFI_STA);
+   char macStr[18];
+   sprintf(macStr, "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+   gatewayMac = String(macStr);
+
+   LoRa.setTxPower(14);       // Baixa a potência de transmissão (o padrão é 17 ou 20)
+   LoRa.setSyncWord(0xF3);    // Define um ID privado para o teu projeto (evita interferências)
+   LoRa.enableCrc();
+
+   Serial.println("\n--- INICIANDO GATEWAY ---");
+   Serial.println("MAC: " + gatewayMac);
+
+   // 2. Limpeza profunda do Wi-Fi (Resolve 90% dos problemas)
+   WiFi.disconnect(true); // Apaga configs guardadas
+   delay(1000);
+   WiFi.mode(WIFI_STA);
+   WiFi.persistent(false);
+
+   Serial.println("A ligar ao SSID: " + String(ssid));
+   WiFi.begin(ssid, password);
+
+   // 3. Aguardar com feedback detalhado
+   int tentativas = 0;
+   while (WiFi.status() != WL_CONNECTED && tentativas < 40) {
+     delay(1000);
+     tentativas++;
+
+     // Mostra o que está a acontecer
+     int status = WiFi.status();
+     Serial.print("Tentativa "); Serial.print(tentativas);
+     Serial.print(" - Status: ");
+
+     switch(status) {
+       case 0: Serial.println("WL_IDLE_STATUS (Parado)"); break;
+       case 1: Serial.println("WL_NO_SSID_AVAIL (SSID nao encontrado!)"); break;
+       case 4: Serial.println("WL_CONNECT_FAILED (Password errada?)"); break;
+       case 6: Serial.println("WL_DISCONNECTED (A tentar...)"); break;
+       default: Serial.print("Codigo: "); Serial.println(status); break;
+     }
+
+     // Se o SSID não for encontrado, não vale a pena esperar 30s
+     if (status == 1) break;
+   }
+
+   if (WiFi.status() == WL_CONNECTED) {
+     Serial.println("\n[SUCESSO] Ligado!");
+     Serial.print("IP: "); Serial.println(WiFi.localIP());
+   } else {
+     Serial.println("\n[FALHA] Nao foi possivel ligar ao WiFi.");
+     Serial.println("DICA: Garante que o teu router tem os 2.4GHz ligados.");
+   }
+
+   // 4. Iniciar LoRa
+   SPI.begin(SCK, MISO, MOSI, SS);
+   LoRa.setPins(SS, RST, DIO0);
+   if (!LoRa.begin(868E6)) {
+     Serial.println("Erro LoRa!");
+     while(1);
+   }
+   Serial.println("GATEWAY EM ESCUTA...");
 }
 
 void loop() {
-  // Se a rede cair no meio da operação, ele usa a reconexão nativa suave
-  if(WiFi.status() != WL_CONNECTED) {
-    Serial.println("Wi-Fi caiu. A tentar reconectar...");
-    display.clearDisplay();
-    display.setCursor(0,0);
-    display.println("Sem Rede!");
-    display.println("A aguardar router...");
-    display.display();
-    
-    WiFi.reconnect();
-    delay(5000); // Espera 5 segundos e tenta de novo
-    return;      // Pula o envio de dados até ter rede novamente
-  }
+   // Feedback para saberes que o Gateway não travou
+   static unsigned long heartbeat = 0;
+   if (millis() - heartbeat > 5000) {
+     heartbeat = millis();
+     Serial.println("Aguardando sinal LoRa... (WiFi OK)");
+   }
 
-  HTTPClient http;
-  http.begin(serverName);
-  
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-HydroBox-Token", apiKey); 
+   int packetSize = LoRa.parsePacket();
+   if (packetSize) {
+     Serial.print("Sinal detectado! Tamanho: ");
+     Serial.print(packetSize);
+     Serial.print(" bytes | RSSI: ");
+     Serial.println(LoRa.packetRssi());
 
-  // Geração de dados simulados para todo o catálogo do HidroBox
-  float o2 = random(50, 95) / 10.0;         // ID 1: Oxigénio (5.0 a 9.5 mg/L)
-  float ph = random(65, 85) / 10.0;         // ID 2: pH (6.5 a 8.5)
-  float temp = random(150, 250) / 10.0;       // ID 3: Temperatura (15.0 a 25.0 C)
-  float condutividade = random(100, 800);     // ID 4: Condutividade (100 a 800 uS/cm)
-  float turbidez = random(10, 500) / 10.0;    // ID 5: Turbidez (1.0 a 50.0 NTU)
-  float salinidade = random(1, 20) / 10.0;    // ID 6: Salinidade (0.1 a 2.0 psu)
-  float nivel = random(10, 50) / 10.0;        // ID 7: Nível da água (1.0 a 5.0 m)
-  float orp = random(100, 400);               // ID 8: ORP (100 a 400 mV)
+     if (packetSize % 16 == 0) {
+       uint8_t encrypted[packetSize];
+       LoRa.readBytes(encrypted, packetSize);
 
-  // Aumentado para 1024 bytes para caberem os 8 sensores sem cortar o JSON
-  StaticJsonDocument<1024> doc;
-  doc["boia_id"] = 1; 
-  
-  JsonArray leituras = doc.createNestedArray("leituras");
-  
-  // Anexar todos os sensores
-  JsonObject l1 = leituras.createNestedObject(); l1["tipo_sensor_id"] = 1; l1["valor"] = o2;
-  JsonObject l2 = leituras.createNestedObject(); l2["tipo_sensor_id"] = 2; l2["valor"] = ph;
-  JsonObject l3 = leituras.createNestedObject(); l3["tipo_sensor_id"] = 3; l3["valor"] = temp;
-  JsonObject l4 = leituras.createNestedObject(); l4["tipo_sensor_id"] = 4; l4["valor"] = condutividade;
-  JsonObject l5 = leituras.createNestedObject(); l5["tipo_sensor_id"] = 5; l5["valor"] = turbidez;
-  JsonObject l6 = leituras.createNestedObject(); l6["tipo_sensor_id"] = 6; l6["valor"] = salinidade;
-  JsonObject l7 = leituras.createNestedObject(); l7["tipo_sensor_id"] = 7; l7["valor"] = nivel;
-  JsonObject l8 = leituras.createNestedObject(); l8["tipo_sensor_id"] = 8; l8["valor"] = orp;
+       uint8_t decrypted[packetSize + 1];
+       decrypt(encrypted, packetSize, decrypted);
 
-  String requestBody;
-  serializeJson(doc, requestBody);
-  
-  Serial.print("[+] A enviar JSON 8 Sensores: ");
-  Serial.println(requestBody);
-  
-  int httpResponseCode = http.POST(requestBody);
-  
-  // Atualiza o ecrã com um resumo (já não cabem todos no pequeno ecrã OLED)
-  display.clearDisplay();
-  display.setCursor(0,0);
-  display.println("DADOS ENVIADOS");
-  display.printf("Total: 8 sensores\n");
-  display.printf("O2:%.1f pH:%.1f T:%.1f\n", o2, ph, temp);
-  display.println("--------------------");
-  
-  if(httpResponseCode > 0) {
-    Serial.printf("[+] Resposta da API: %d\n", httpResponseCode);
-    if(httpResponseCode == 200 || httpResponseCode == 201) {
-      display.printf("SUCESSO (Cod: %d)\n", httpResponseCode);
-    } else {
-      display.printf("REJEITADO (Cod:%d)\n", httpResponseCode);
-    }
-  } else {
-    display.printf("ERRO REDE: %d\n", httpResponseCode);
-  }
-  display.display();
-  
-  http.end();
-  
-  // Espera 10 segundos antes da próxima leitura
-  delay(10000); 
+       int pad = decrypted[packetSize - 1];
+       int realLen = packetSize - (pad < 16 ? pad : 0);
+       decrypted[realLen] = '\0';
+       String payload = String((char*)decrypted);
+
+       StaticJsonDocument<1024> doc;
+       if (deserializeJson(doc, payload) == DeserializationError::Ok) {
+         long msgId = doc["msg_id"];
+         String macBoia = doc["mac"];
+
+         doc["mac_gateway"] = gatewayMac;
+
+         if (WiFi.status() == WL_CONNECTED) {
+           HTTPClient http;
+           http.begin(serverName);
+           http.addHeader("Content-Type", "application/json");
+           http.addHeader("X-HydroBox-Token", apiKey);
+           doc.remove("msg_id");
+           String jsonFinal;
+           serializeJson(doc, jsonFinal);
+
+           int code = http.POST(jsonFinal);
+           Serial.printf("SUCESSO! Boia [%s] -> API: %d\n", macBoia.c_str(), code);
+           http.end();
+           ultimaMsgId = msgId;
+         }
+       } else {
+         Serial.println("Erro: Falha ao ler JSON (Chave AES correta?)");
+       }
+     } else {
+       Serial.println("Sinal ignorado: Tamanho do pacote nao e multiplo de 16.");
+     }
+   }
 }

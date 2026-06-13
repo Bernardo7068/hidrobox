@@ -10,6 +10,9 @@ class Empresa extends Model
     protected $fillable = [
         'nome',
         'nif',
+        'email_contacto',
+        'telefone',
+        'morada',
     ];
 
     /**

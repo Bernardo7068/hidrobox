@@ -12,15 +12,23 @@ class Boia extends Model
     protected $fillable = [
         'mac_boia',
         'mac_gateway',
+        'gateway_id',
         'nome', 
         'latitude', 
         'longitude', 
         'zona_id', 
         'estado', 
         'bateria',
+        'intervalo_segundos',
+        'rssi_ultimo',
         'localizacao_texto',
         'ultima_manutencao'
     ];
+
+    public function gateway()
+    {
+        return $this->belongsTo(Gateway::class);
+    }
 
     public function zona()
     {
@@ -40,5 +48,10 @@ class Boia extends Model
     public function alertas()
     {
         return $this->hasMany(Alerta::class);
+    }
+
+    public function manutencoes()
+    {
+        return $this->hasMany(Manutencao::class)->orderBy('data_intervencao', 'desc');
     }
 }

@@ -1,11 +1,13 @@
 export default function Header({ titulo, userName }) {
   const getDisplayTitle = (id) => {
     const titles = {
-      'visao-geral': 'Resumo Operacional',
-      'mapa': 'Mapa de Ativos',
-      'equipamentos': 'Gestão Técnica',
-      'super-admin': 'Administração Central',
-      'admin-empresa': 'Gestão de Recursos Humanos'
+      'guia': 'Guia do Sistema',
+      'visao-geral': 'Estado da Rede',
+      'mapa': 'Mapa das Estações',
+      'estatisticas': 'Histórico e Dados',
+      'equipamentos': 'Gestão de Aparelhos',
+      'super-admin': 'Administração Geral',
+      'admin-empresa': 'Gestão de Equipa'
     };
     return titles[id] || id.replace('-', ' ');
   };
@@ -22,7 +24,7 @@ export default function Header({ titulo, userName }) {
       <div className="flex items-center gap-6">
         <div className="text-right hidden sm:block">
           <p className="text-sm font-black text-slate-800 uppercase tracking-tighter leading-none">{userName}</p>
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1 opacity-60">Operador Autorizado</p>
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1 opacity-60">Utilizador Ligado</p>
         </div>
         <div className="relative group">
             <div className="h-12 w-12 bg-gradient-to-tr from-blue-700 to-indigo-800 border-4 border-white rounded-2xl flex items-center justify-center text-white font-black shadow-xl group-hover:rotate-6 transition-transform">

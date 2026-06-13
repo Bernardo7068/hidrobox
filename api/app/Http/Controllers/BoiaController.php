@@ -7,9 +7,67 @@ use App\Models\Boia;
 use App\Models\Zona;
 use App\Models\TipoSensor;
 use App\Models\LimiteSensor;
+use App\Models\Gateway;
+use Illuminate\Support\Facades\DB;
 
 class BoiaController extends Controller
 {
+    public function getGateways()
+    {
+        return response()->json(Gateway::with('boias')->get());
+    }
+
+    public function storeGateway(Request $request)
+    {
+        $validated = $request->validate([
+            'mac_gateway' => 'required|string',
+            'nome' => 'required|string|max:255',
+            'latitude' => 'nullable|numeric',
+            'longitude' => 'nullable|numeric',
+            'raio_cobertura' => 'nullable|integer',
+        ]);
+
+        $gateway = Gateway::updateOrCreate(
+            ['mac_gateway' => $validated['mac_gateway']],
+            [
+                'nome' => $validated['nome'],
+                'latitude' => $validated['latitude'],
+                'longitude' => $validated['longitude'],
+                'raio_cobertura' => $validated['raio_cobertura'],
+                'estado' => 'ativo' // Ao configurar manualmente, passa a ativo
+            ]
+        );
+        
+        // Tentar vincular boias órfãs que já usam este MAC
+        DB::table('boias')->where('mac_gateway', $gateway->mac_gateway)->update(['gateway_id' => $gateway->id]);
+
+        return response()->json(['sucesso' => true, 'gateway' => $gateway], 201);
+    }
+
+    public function updateGateway(Request $request, $id)
+    {
+        $gateway = Gateway::findOrFail($id);
+        $validated = $request->validate([
+            'nome' => 'sometimes|string|max:255',
+            'latitude' => 'nullable|numeric',
+            'longitude' => 'nullable|numeric',
+            'raio_cobertura' => 'nullable|integer',
+            'estado' => 'sometimes|string|in:ativo,manutencao,erro,offline'
+        ]);
+
+        $gateway->update($validated);
+        return response()->json(['sucesso' => true, 'gateway' => $gateway]);
+    }
+
+    public function destroyGateway($id)
+    {
+        $gateway = Gateway::findOrFail($id);
+        // Desvincular boias
+        DB::table('boias')->where('gateway_id', $gateway->id)->update(['gateway_id' => null]);
+        $gateway->delete();
+        return response()->json(['sucesso' => true, 'mensagem' => 'Gateway removido.']);
+    }
+
     public function index(Request $request)
     {
         $user = $request->user(); 
@@ -55,19 +113,59 @@ class BoiaController extends Controller
         return response()->json(TipoSensor::all());
     }
 
+    public function storeTipoSensor(Request $request)
+    {
+        $validated = $request->validate([
+            'nome' => 'required|string|max:255|unique:tipos_sensor,nome',
+            'unidade' => 'required|string|max:50',
+        ]);
+
+        $tipo = TipoSensor::create($validated);
+        return response()->json(['sucesso' => true, 'tipo' => $tipo], 201);
+    }
+
+    public function updateTipoSensor(Request $request, $id)
+    {
+        $tipo = TipoSensor::findOrFail($id);
+        $validated = $request->validate([
+            'nome' => 'sometimes|string|max:255|unique:tipos_sensor,nome,' . $id,
+            'unidade' => 'sometimes|string|max:50',
+        ]);
+
+        $tipo->update($validated);
+        return response()->json(['sucesso' => true, 'tipo' => $tipo]);
+    }
+
+    public function destroyTipoSensor($id)
+    {
+        $tipo = TipoSensor::findOrFail($id);
+        
+        // Verificar se existem limites ou leituras associadas
+        $emUso = DB::table('limites_sensores')->where('tipo_sensor_id', $id)->exists() ||
+                 DB::table('leituras')->where('tipo_sensor_id', $id)->exists();
+
+        if ($emUso) {
+            return response()->json(['sucesso' => false, 'mensagem' => 'Não pode eliminar um sensor em uso pela rede.'], 422);
+        }
+
+        $tipo->delete();
+        return response()->json(['sucesso' => true]);
+    }
+
     public function store(Request $request)
     {
         $user = $request->user();
         
         // 1. Valida os dados recebidos
         $dadosValidados = $request->validate([
-            'mac_boia'          => 'required|string|unique:boias,mac_boia', 
+            'mac_boia'          => 'required|string|unique:boias,mac_boia',
             'mac_gateway'       => 'required|string',
             'nome'              => 'required|string|max:255',
             'latitude'          => 'required|numeric',
             'longitude'         => 'required|numeric',
             'zona_id'           => 'required|integer|exists:zonas,id',
-            'localizacao_texto' => 'nullable|string|max:255'
+            'localizacao_texto' => 'nullable|string|max:255',
+            'intervalo_segundos' => 'nullable|integer|min:10'
         ]);
 
         // Proteção extra: Garantir que a zona pertence à empresa do admin (se não for super_admin)
@@ -139,7 +237,7 @@ class BoiaController extends Controller
     {
         $user = $request->user();
         
-        $boia = Boia::with(['zona', 'limites.tipo_sensor', 'leituras'])->find($id);
+        $boia = Boia::with(['zona', 'limites.tipo_sensor', 'leituras', 'manutencoes.user', 'manutencoes.tipoSensor'])->find($id);
 
         if (!$boia) {
             return response()->json(['sucesso' => false, 'mensagem' => 'Esta boia não existe.'], 404);
@@ -151,6 +249,47 @@ class BoiaController extends Controller
         }
 
         return response()->json($boia, 200);
+    }
+
+    public function registarManutencao(Request $request, $id)
+    {
+        $user = $request->user();
+        $boia = Boia::findOrFail($id);
+
+        $validated = $request->validate([
+            'tipo'            => 'required|string|in:limpeza,calibracao,reparacao',
+            'tipo_sensor_id'  => 'nullable|integer|exists:tipos_sensor,id',
+            'observacoes'     => 'nullable|string',
+            'estado_geral'    => 'required|string|in:bom,regular,critico',
+            'checklist'       => 'nullable|array',
+            'data_intervencao'=> 'required|date'
+        ]);
+
+        $manutencao = \App\Models\Manutencao::create([
+            'boia_id'         => $boia->id,
+            'user_id'         => $user->id,
+            'tipo'            => $validated['tipo'],
+            'tipo_sensor_id'  => $validated['tipo_sensor_id'] ?? null,
+            'observacoes'     => $validated['observacoes'],
+            'estado_geral'    => $validated['estado_geral'],
+            'checklist'       => $validated['checklist'],
+            'data_intervencao'=> $validated['data_intervencao']
+        ]);
+
+        // 1. Se for uma limpeza geral, atualizar a boia
+        if ($validated['tipo'] === 'limpeza') {
+            $boia->update(['ultima_manutencao' => $validated['data_intervencao']]);
+        }
+
+        // 2. Se for uma calibração de sensor, atualizar o limite específico
+        if ($validated['tipo'] === 'calibracao' && isset($validated['tipo_sensor_id'])) {
+            \DB::table('limites_sensores')
+                ->where('boia_id', $boia->id)
+                ->where('tipo_sensor_id', $validated['tipo_sensor_id'])
+                ->update(['ultima_manutencao' => $validated['data_intervencao']]);
+        }
+
+        return response()->json(['sucesso' => true, 'manutencao' => $manutencao], 201);
     }
 
     public function update(Request $request, $id)
@@ -175,8 +314,9 @@ class BoiaController extends Controller
             'longitude'         => 'sometimes|numeric',
             'zona_id'           => 'sometimes|integer|exists:zonas,id',
             'localizacao_texto' => 'nullable|string|max:255',
-            'estado'            => 'sometimes|string|in:ativa,manutencao,erro,offline',
-            'bateria'           => 'sometimes|integer|min:0|max:100'
+            'estado'            => 'sometimes|string|in:ativa,pendente,manutencao,erro,offline',
+            'bateria'           => 'sometimes|integer|min:0|max:100',
+            'intervalo_segundos' => 'sometimes|integer|min:10'
         ]);
 
         // Se mudar de zona, verificar se a nova zona pertence à mesma empresa

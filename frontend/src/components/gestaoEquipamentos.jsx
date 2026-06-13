@@ -1,12 +1,28 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import api from '../api';
-import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
+import Tooltip from './Tooltip';
+import { MapContainer, TileLayer, Marker, Circle, Popup, Polyline, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
 // Fix para os ícones do Leaflet
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
+
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371e3; // metres
+    const phi1 = lat1 * Math.PI/180;
+    const phi2 = lat2 * Math.PI/180;
+    const deltaPhi = (lat2-lat1) * Math.PI/180;
+    const deltaLambda = (lon2-lon1) * Math.PI/180;
+
+    const a = Math.sin(deltaPhi/2) * Math.sin(deltaPhi/2) +
+            Math.cos(phi1) * Math.cos(phi2) *
+            Math.sin(deltaLambda/2) * Math.sin(deltaLambda/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+    return R * c; // in metres
+};
 
 let DefaultIcon = L.icon({
     iconUrl: markerIcon,
@@ -15,6 +31,23 @@ let DefaultIcon = L.icon({
     iconAnchor: [12, 41]
 });
 L.Marker.prototype.options.icon = DefaultIcon;
+
+// Ícone de Torre de Gateway
+const towerIcon = L.divIcon({
+    html: '<div style="font-size: 24px;">📡</div>',
+    className: 'custom-div-icon',
+    iconSize: [30, 30],
+    iconAnchor: [15, 15]
+});
+
+// Componente para controlar o centro do mapa programaticamente
+function MapController({ center }) {
+    const map = useMap();
+    useEffect(() => {
+        if (center) map.setView(center, map.getZoom());
+    }, [center, map]);
+    return null;
+}
 
 // Componente interno para capturar o clique no mapa
 function LocationMarker({ position, setPosition }) {
@@ -29,7 +62,31 @@ function LocationMarker({ position, setPosition }) {
     );
 }
 
-export default function GestaoEquipamentos() {
+// Funções Utilitárias de Data (Fora do Componente para evitar erros de hoisting)
+const calculateNextMaintenance = (lastDate, days) => {
+    if (!lastDate || !days) return 'Não agendada';
+    const date = new Date(lastDate);
+    date.setDate(date.getDate() + parseInt(days));
+    return date.toLocaleDateString('pt-PT');
+};
+
+const getMaintenanceProgress = (lastDate, days) => {
+    if (!lastDate || !days) return 0;
+    const start = new Date(lastDate).getTime();
+    const now = new Date().getTime();
+    const end = start + (parseInt(days) * 24 * 60 * 60 * 1000);
+    const progress = ((now - start) / (end - start)) * 100;
+    return Math.min(Math.max(progress, 0), 100);
+};
+
+const isOverdue = (lastDate, days) => {
+    if (!lastDate || !days) return false;
+    const nextDate = new Date(lastDate);
+    nextDate.setDate(nextDate.getDate() + parseInt(days));
+    return nextDate < new Date();
+};
+
+export default function GestaoEquipamentos({ isHelpMode }) {
     // Simulação de obtenção do utilizador do localStorage (ou contexto)
     const user = JSON.parse(localStorage.getItem('user') || '{"role": "leitor_empresa"}');
     const isSuperAdmin = user.role === 'super_admin';
@@ -41,7 +98,29 @@ export default function GestaoEquipamentos() {
 
     const [zonas, setZonas] = useState([]);
     const [boias, setBoias] = useState([]);
+    const [gateways, setGateways] = useState([]);
     const [tiposSensor, setTiposSensor] = useState([]);
+
+    const boiasPendentes = boias.filter(b => b.estado === 'pendente');
+    const todasBoiasDisponiveis = boias.filter(b => b.estado === 'pendente' || b.estado === 'ativa');
+
+    // Novo estado para criação de gateway
+    const [formGateway, setFormGateway] = useState({ mac_gateway: '', nome: '', latitude: '', longitude: '', raio_cobertura: 1000 });
+
+    // Lógica para calcular missões pendentes (necessária para o badge da aba)
+    const getMissionsCount = () => {
+        let count = 0;
+        boias.forEach(boia => {
+            (boia.limites || []).forEach(lim => {
+                if (lim.is_configurado === false || lim.is_configurado === 0) count++;
+                if (lim.is_configurado && isOverdue(lim.ultima_manutencao, lim.dias_proxima_manutencao)) count++;
+            });
+            if (boia.ultima_manutencao && isOverdue(boia.ultima_manutencao, 15)) count++;
+            if (boia.bateria < 20) count++;
+        });
+        return count;
+    };
+    const totalMissoes = getMissionsCount();
 
     // Estado para controlar o Painel Lateral de Ficha Técnica
     const [boiaDetalhe, setBoiaDetalhe] = useState(null);
@@ -50,9 +129,37 @@ export default function GestaoEquipamentos() {
     const [formEditBoia, setFormEditBoia] = useState({});
     const [limitesEditando, setLimitesEditando] = useState({});
 
+    // ESTADOS PARA O RELATÓRIO DE MANUTENÇÃO
+    const [mostrarModalManutencao, setMostrarTourManutencao] = useState(false);
+    const [formManutencao, setFormRelatorioManutencao] = useState({
+        tipo: 'limpeza',
+        observacoes: '',
+        estado_geral: 'bom',
+        checklist: { sensores: true, bateria: true, vedacao: true, antena: true }
+    });
+
+    const handleSubmeterManutencao = async (e) => {
+        e.preventDefault();
+        try {
+            await api.post(`/boias/${boiaDetalhe.id}/manutencao`, {
+                ...formManutencao,
+                data_intervencao: new Date().toISOString()
+            });
+            setMostrarTourManutencao(false);
+            setMensagem({ texto: 'Relatório de manutenção registado!', tipo: 'sucesso' });
+            carregarDados();
+            if (boiaDetalhe) {
+                const res = await api.get(`/boias/${boiaDetalhe.id}`);
+                setBoiaDetalhe(res.data);
+            }
+        } catch (err) {
+            setMensagem({ texto: 'Erro ao registar relatório.', tipo: 'erro' });
+        }
+    };
+
     // Estado do Formulário da Boia (Criação do zero)
     const [formBoia, setFormBoia] = useState({
-        mac_boia: '', mac_gateway: '', nome: '', zona_id: '', latitude: '', longitude: '', localizacao_texto: ''
+        mac_boia: '', mac_gateway: '', nome: '', zona_id: '', latitude: '', longitude: '', localizacao_texto: '', intervalo_segundos: 300
     });
 
     // Estado dos Sensores para Nova Instalação
@@ -71,34 +178,35 @@ export default function GestaoEquipamentos() {
 
     const [mensagem, setMensagem] = useState({ texto: '', tipo: '' });
 
+    // Sincronizar mapa com Gateway selecionado no Novo Registo
+    const [centroMapaNova, setCentroMapaNova] = useState([39.7436, -8.8071]);
+
+    useEffect(() => {
+        if (formBoia.mac_gateway) {
+            const selectedGw = gateways.find(gw => gw.mac_gateway === formBoia.mac_gateway);
+            if (selectedGw && selectedGw.latitude && selectedGw.longitude) {
+                setCentroMapaNova([selectedGw.latitude, selectedGw.longitude]);
+            }
+        }
+    }, [formBoia.mac_gateway, gateways]);
+
+    // Scroll automático para o formulário de calibração quando aberto
+    useEffect(() => {
+        if (adicionandoSensor) {
+            setTimeout(() => {
+                const element = document.getElementById('sensor-config-form');
+                if (element) {
+                    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }, 100);
+        }
+    }, [adicionandoSensor]);
+
     // Estado para controlar a expansão das boias na Agenda Técnica
     const [agendaExpandida, setAgendaExpandida] = useState({});
 
     const toggleAgendaBoia = (id) => {
         setAgendaExpandida(prev => ({ ...prev, [id]: !prev[id] }));
-    };
-
-    const calculateNextMaintenance = (lastDate, days) => {
-        if (!lastDate || !days) return 'Não agendada';
-        const date = new Date(lastDate);
-        date.setDate(date.getDate() + parseInt(days));
-        return date.toLocaleDateString('pt-PT');
-    };
-
-    const getMaintenanceProgress = (lastDate, days) => {
-        if (!lastDate || !days) return 0;
-        const start = new Date(lastDate).getTime();
-        const now = new Date().getTime();
-        const end = start + (parseInt(days) * 24 * 60 * 60 * 1000);
-        const progress = ((now - start) / (end - start)) * 100;
-        return Math.min(Math.max(progress, 0), 100);
-    };
-
-    const isOverdue = (lastDate, days) => {
-        if (!lastDate || !days) return false;
-        const nextDate = new Date(lastDate);
-        nextDate.setDate(nextDate.getDate() + parseInt(days));
-        return nextDate < new Date();
     };
 
     const handleLogManutencaoGeral = async (boiaId) => {
@@ -130,8 +238,8 @@ export default function GestaoEquipamentos() {
 
     const carregarDadosIniciais = async () => {
         try {
-            const [resZonas, resBoias, resTipos] = await Promise.all([
-                api.get('/zonas'), api.get('/boias'), api.get('/tipos-sensor')
+            const [resZonas, resBoias, resTipos, resGateways] = await Promise.all([
+                api.get('/zonas'), api.get('/boias'), api.get('/tipos-sensor'), api.get('/gateways')
             ]);
 
             // No inventário, queremos as leituras recentes para cada boia
@@ -147,6 +255,7 @@ export default function GestaoEquipamentos() {
             setZonas(resZonas.data);
             setBoias(boiasComLeituras);
             setTiposSensor(resTipos.data);
+            setGateways(resGateways.data);
 
             // Sincronizar boiaDetalhe se estiver aberta
             if (boiaDetalhe) {
@@ -156,6 +265,48 @@ export default function GestaoEquipamentos() {
         } catch (error) {
             console.error('Erro ao carregar dados:', error);
         }
+    };
+
+    const handleCriarGateway = async (e) => {
+        e.preventDefault();
+        try {
+            await api.post('/gateways', formGateway);
+            mostrarMensagem('Novo Gateway registado na infraestrutura!', 'sucesso');
+            setFormGateway({ mac_gateway: '', nome: '', latitude: '', longitude: '', raio_cobertura: 1000 });
+            carregarDadosIniciais();
+        } catch (error) { mostrarMensagem('Erro ao registar gateway.', 'erro'); }
+    };
+
+    const recalibrarRaioGateway = async (gw) => {
+        try {
+            const minhasBoias = boias.filter(b => b.mac_gateway === gw.mac_gateway && b.latitude && b.longitude && b.rssi_ultimo);
+            if (minhasBoias.length === 0) return mostrarMensagem('Sem boias ativas para calibrar.', 'erro');
+            
+            const boiasEstaveis = minhasBoias.filter(b => b.rssi_ultimo > -115);
+            if (boiasEstaveis.length === 0) return mostrarMensagem('Sinal crítico em todas as boias.', 'erro');
+
+            const distancias = boiasEstaveis.map(b => {
+                if (!gw.latitude || !gw.longitude) return 0;
+                return calculateDistance(Number(gw.latitude), Number(gw.longitude), Number(b.latitude), Number(b.longitude));
+            });
+
+            const maxDist = Math.max(...distancias);
+            const raioSeguro = Math.ceil(maxDist * 1.1); 
+
+            await api.put(`/gateways/${gw.id}`, { ...gw, raio_cobertura: raioSeguro });
+            mostrarMensagem(`Hub "${gw.nome}" calibrado para ${raioSeguro}m.`, 'sucesso');
+            carregarDadosIniciais();
+        } catch (error) {
+            mostrarMensagem('Erro ao calibrar hub.', 'erro');
+        }
+    };
+
+    const removerGateway = async (id) => {
+        if (!window.confirm('Remover este Gateway? As boias associadas passarão a órfãs.')) return;
+        try {
+            await api.delete(`/gateways/${id}`);
+            carregarDadosIniciais();
+        } catch (error) { console.error(error); }
     };
 
     const mostrarMensagem = (texto, tipo) => {
@@ -321,44 +472,102 @@ export default function GestaoEquipamentos() {
 
     // Estilos comuns
     const cardClass = "bg-white rounded-[2rem] shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden";
-    const labelClass = "text-xs font-black uppercase tracking-widest text-slate-400 mb-2 block";
+    const labelClass = "text-sm font-black uppercase tracking-widest text-slate-400 mb-2 block";
     const inputClass = "w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:bg-white focus:border-blue-500 outline-none transition-all font-bold text-slate-700 placeholder:text-slate-300";
 
-    const tabBase = "flex items-center gap-3 px-6 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all duration-300 border-2 border-transparent cursor-pointer";
+    const tabBase = "flex items-center gap-3 px-6 py-4 rounded-2xl font-black text-sm uppercase tracking-widest transition-all duration-300 border-2 border-transparent cursor-pointer";
     const tabActive = "bg-white text-blue-600 shadow-xl shadow-blue-900/10 border-blue-100 scale-[1.05]";
     const tabInactive = "text-slate-400 hover:bg-white/50 hover:text-slate-600";
 
     return (
         <div className="max-w-7xl mx-auto space-y-8 pb-12">
             
+            {/* Alerta de Descoberta de Hardware (Boias Pendentes) */}
+            {boiasPendentes.length > 0 && (
+                <section className="mx-4 bg-amber-50 border-2 border-amber-200 p-6 rounded-[2rem] shadow-lg shadow-amber-200/20 flex flex-col md:flex-row items-center justify-between gap-6 animate-bounce-slow">
+                    <div className="flex items-center gap-5">
+                        <div className="w-14 h-14 bg-amber-500 rounded-2xl flex items-center justify-center text-2xl shadow-lg shadow-amber-500/40">
+                            🛰️
+                        </div>
+                        <div>
+                            <h3 className="text-xl font-black text-amber-900 uppercase tracking-tight">Nova Boia Detetada!</h3>
+                            <p className="text-amber-700 font-bold text-sm uppercase tracking-widest mt-1">
+                                Endereço MAC a aguardar registo: <span className="font-black text-amber-950 underline">{boiasPendentes[0].mac_boia}</span>
+                            </p>
+                        </div>
+                    </div>
+                    <div className="flex flex-col md:flex-row items-center gap-4">
+                        <div className="flex items-center gap-2 text-amber-900 font-black text-[10px] uppercase tracking-widest">
+                            Configure agora ➡️
+                        </div>
+                        <button 
+                            onClick={() => {
+                                const boia = boiasPendentes[0];
+                                setBoiaDetalhe(boia);
+                                setEditandoBoia(true);
+                                setFormEditBoia({
+                                    ...boia,
+                                    nome: boia.nome || '',
+                                    mac_boia: boia.mac_boia || '',
+                                    mac_gateway: boia.mac_gateway || '',
+                                    latitude: boia.latitude || '',
+                                    longitude: boia.longitude || '',
+                                    local_texto: boia.localizacao_texto || '',
+                                    bateria: boia.bateria ?? 100,
+                                    estado: 'ativa'
+                                });
+                            }}
+                            className="bg-amber-950 text-white px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all shadow-xl active:scale-95"
+                        >
+                            Configurar Estação
+                        </button>
+                    </div>
+                </section>
+            )}
+
             {/* Header / Navegação por Abas */}
             <div className="bg-slate-100/50 p-2 rounded-[2.5rem] flex flex-wrap gap-2">
                 <button
+                    id="aba-monitorizacao"
                     onClick={() => setSubAba('inventario')}
                     className={`${tabBase} ${subAba === 'inventario' ? tabActive : tabInactive}`}
                 >
                     <span className="text-xl">🖥️</span> Monitorização
                 </button>
-                {isAdmin && (
+                {(isAdmin || isTecnico) && (
                     <button
+                        id="aba-novo-registo"
                         onClick={() => setSubAba('nova')}
                         className={`${tabBase} ${subAba === 'nova' ? tabActive : tabInactive}`}
                     >
                         <span className="text-xl">➕</span> Novo Registo
                     </button>
                 )}
-                {(isAdmin || isTecnico) && (
+                <button
+                    id="aba-hub-rede"
+                    onClick={() => setSubAba('rede')}
+                    className={`${tabBase} ${subAba === 'rede' ? tabActive : tabInactive}`}
+                >
+                    <span className="text-xl">🗼</span> Hub de Rede
+                </button>
+                {(isAdmin || isTecnico || isLeitor) && (
                     <button
+                        id="aba-agenda-tecnica"
                         onClick={() => setSubAba('agenda')}
-                        className={`${tabBase} ${subAba === 'agenda' ? tabActive : tabInactive}`}
+                        className={`${tabBase} ${subAba === 'agenda' ? tabActive : tabInactive} relative`}
                     >
                         <span className="text-xl">📅</span> Agenda Técnica
+                        {totalMissoes > 0 && (
+                            <span className="absolute -top-1 -right-1 w-5 h-5 bg-rose-500 text-white text-[10px] flex items-center justify-center rounded-full border-2 border-white animate-pulse shadow-lg">
+                                {totalMissoes}
+                            </span>
+                        )}
                     </button>
                 )}
             </div>
 
             {mensagem.texto && (
-                <div className={`p-4 rounded-2xl text-center text-xs font-black uppercase tracking-[0.2em] animate-bounce shadow-lg ${mensagem.tipo === 'sucesso' ? 'bg-emerald-500 text-white shadow-emerald-200' : 'bg-rose-500 text-white shadow-rose-200'}`}>
+                <div className={`p-4 rounded-2xl text-center text-sm font-black uppercase tracking-[0.2em] animate-bounce shadow-lg ${mensagem.tipo === 'sucesso' ? 'bg-emerald-500 text-white shadow-emerald-200' : 'bg-rose-500 text-white shadow-rose-200'}`}>
                     {mensagem.texto}
                 </div>
             )}
@@ -368,15 +577,20 @@ export default function GestaoEquipamentos() {
 
                 {/* ABA 1: MONITORIZAÇÃO */}
                 {subAba === 'inventario' && (
-                    <div className="space-y-16">
+                    <div className="space-y-16 relative">
+                        {isHelpMode && (
+                            <div className="absolute -top-12 left-0 bg-amber-400 text-amber-950 text-sm font-black p-5 rounded-2xl shadow-xl w-80 z-50 animate-bounce-in border-4 border-white">
+                                🖥️ <strong>Monitorização:</strong> Aqui podes ver os dados em tempo real de todas as tuas estações. Clica num cartão para abrir a Ficha Técnica da boia.
+                            </div>
+                        )}
                         <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-4">
                             <div>
-                                <h2 className="text-5xl font-black text-slate-800 tracking-tight">Rede de Ativos</h2>
-                                <p className="text-slate-400 font-medium text-lg mt-2 italic">Controlo de telemetria e integridade de hardware</p>
+                                <h2 className="text-5xl font-black text-slate-800 tracking-tight">Lista de Aparelhos</h2>
+                                <p className="text-slate-400 font-medium text-lg mt-2 italic">Controlo e estado de conservação das boias</p>
                             </div>
                             <div className="flex gap-4">
                                 <div className="bg-white px-6 py-3 rounded-2xl shadow-sm border border-slate-100 text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                                    Total Estações: <span className="text-blue-600 text-lg ml-1">{boias.length}</span>
+                                    Total de Boias: <span className="text-blue-600 text-lg ml-1">{boias.length}</span>
                                 </div>
                             </div>
                         </header>
@@ -389,7 +603,7 @@ export default function GestaoEquipamentos() {
                                     </div>
                                     <div>
                                         <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">{zona.nome}</h3>
-                                        <p className="text-xs font-black text-slate-400 uppercase tracking-[0.3em]">{zona.concelho} • {zona.instalacoes.length} Unidades</p>
+                                        <p className="text-sm font-black text-slate-400 uppercase tracking-[0.3em]">{zona.concelho} • {zona.instalacoes.length} Unidades</p>
                                     </div>
                                     <div className="flex-1 h-[2px] bg-slate-100"></div>
                                 </div>
@@ -400,20 +614,62 @@ export default function GestaoEquipamentos() {
                                         const IDsLimites = boia.limites ? boia.limites.map(l => l.tipo_sensor_id) : [];
                                         const IDsSensoresDetetados = [...new Set([...IDsLeituras, ...IDsLimites])];
 
+                                        // Lógica de "Batimento Cardíaco" (Heartbeat) - 5 minutos de tolerância
+                                        const ultimaMensagem = boia.updated_at ? new Date(boia.updated_at) : new Date(boia.created_at);
+                                        const minutosDesdeUltima = (new Date() - ultimaMensagem) / (1000 * 60);
+                                        const isOffline = minutosDesdeUltima > 5 && boia.estado === 'ativa';
+
                                         return (
                                             <div 
                                                 key={boia.id} 
-                                                onClick={() => setBoiaDetalhe(boia)}
+                                                onClick={() => {
+                                                    setBoiaDetalhe(boia);
+                                                    if (boia.estado === 'pendente') {
+                                                        setEditandoBoia(true);
+                                                        setFormEditBoia({
+                                                            ...boia,
+                                                            nome: boia.nome || '',
+                                                            mac_boia: boia.mac_boia || '',
+                                                            mac_gateway: boia.mac_gateway || '',
+                                                            latitude: boia.latitude || '',
+                                                            longitude: boia.longitude || '',
+                                                            localizacao_texto: boia.localizacao_texto || '',
+                                                            bateria: boia.bateria ?? 100,
+                                                            estado: 'ativa' // Sugere passar para ativa ao editar
+                                                        });
+                                                    }
+                                                }}
                                                 className={`${cardClass} p-10 hover:border-blue-300 transition-all hover:shadow-2xl hover:shadow-blue-900/10 cursor-pointer group relative`}
                                             >
                                                 {/* Indicador de Estado */}
                                                 <div className="absolute top-0 right-0 p-8 flex flex-col items-end gap-2">
-                                                    <div className="flex items-center gap-2 bg-emerald-50 px-4 py-1.5 rounded-full border border-emerald-100">
-                                                        <span className="w-2 h-2 bg-emerald-500 rounded-full animate-ping"></span>
-                                                        <span className="text-[10px] font-black text-emerald-700 uppercase tracking-widest">Ativa</span>
+                                                    <div className={`flex items-center gap-2 px-4 py-1.5 rounded-full border ${
+                                                        isOffline ? 'bg-slate-100 border-slate-200 text-slate-500' :
+                                                        boia.estado === 'ativa' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' :
+                                                        boia.estado === 'pendente' ? 'bg-amber-50 border-amber-200 text-amber-700 animate-pulse' :
+                                                        'bg-rose-50 border-rose-100 text-rose-700'
+                                                    }`}>
+                                                        <span className={`w-2 h-2 rounded-full ${
+                                                            isOffline ? 'bg-slate-400' :
+                                                            boia.estado === 'ativa' ? 'bg-emerald-500 animate-ping' :
+                                                            boia.estado === 'pendente' ? 'bg-amber-500 animate-pulse' :
+                                                            'bg-rose-500'
+                                                        }`}></span>
+                                                        <span className="text-[10px] font-black uppercase tracking-widest">
+                                                            {isOffline ? 'Desconectada' : boia.estado}
+                                                        </span>
                                                     </div>
-                                                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 px-4 py-1.5 rounded-full border border-slate-100">
-                                                        🔋 {boia.bateria}%
+                                                    <div className="flex gap-2">
+                                                        <Tooltip text="Nível de energia da estação">
+                                                            <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 px-4 py-1.5 rounded-full border border-slate-100 cursor-help">
+                                                                🔋 {boia.bateria}%
+                                                            </div>
+                                                        </Tooltip>
+                                                        <Tooltip text={`Última atividade: ${ultimaMensagem.toLocaleTimeString('pt-PT')}`}>
+                                                            <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 px-4 py-1.5 rounded-full border border-slate-100 cursor-help">
+                                                                🕒 {Math.floor(minutosDesdeUltima)} min atrás
+                                                            </div>
+                                                        </Tooltip>
                                                     </div>
                                                 </div>
 
@@ -421,9 +677,60 @@ export default function GestaoEquipamentos() {
                                                     {/* Secção de Info */}
                                                     <div className="lg:w-1/3 space-y-6">
                                                         <div className="space-y-2">
-                                                            <div className="text-[10px] font-black text-blue-600 uppercase tracking-[0.3em]">Hardware ID #{boia.id}</div>
+                                                            <div className="flex justify-between items-start">
+                                                                <div className="text-[10px] font-black text-blue-600 uppercase tracking-[0.3em]">Hardware ID #{boia.id}</div>
+                                                                {/* Indicador de Sinal de Rede Visual (NOVO) */}
+                                                                <div className="flex items-center gap-3 bg-slate-900 px-4 py-2 rounded-2xl border border-white/10 shadow-2xl group-hover:scale-105 transition-transform">
+                                                                    <div className="flex gap-1 items-end h-4">
+                                                                        {[1, 2, 3, 4, 5].map((bar) => {
+                                                                            const strength = boia.rssi_ultimo ? (boia.rssi_ultimo + 140) / 110 : 0;
+                                                                            const isActive = strength > (bar / 5);
+                                                                            return (
+                                                                                <div key={bar} 
+                                                                                    className={`w-1 rounded-full transition-all ${
+                                                                                        isActive 
+                                                                                            ? (strength > 0.7 ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]' : strength > 0.4 ? 'bg-amber-400' : 'bg-rose-400') 
+                                                                                            : 'bg-white/10'
+                                                                                    }`}
+                                                                                    style={{ height: `${bar * 20}%` }}
+                                                                                ></div>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                    <div className="flex flex-col">
+                                                                        <span className={`text-sm font-black uppercase leading-tight ${
+                                                                            !boia.rssi_ultimo ? 'text-slate-500' :
+                                                                            boia.rssi_ultimo > -90 ? 'text-emerald-400' :
+                                                                            boia.rssi_ultimo > -115 ? 'text-amber-400' : 'text-rose-400'
+                                                                        }`}>
+                                                                            {!boia.rssi_ultimo ? 'Sem Sinal' :
+                                                                             boia.rssi_ultimo > -90 ? 'Excelente' :
+                                                                             boia.rssi_ultimo > -115 ? 'Estável' : 'Sinal Crítico'}
+                                                                        </span>
+                                                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mt-1">
+                                                                            {boia.rssi_ultimo ? `${boia.rssi_ultimo} dBm` : 'Hardware Offline'}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
                                                             <h4 className="text-4xl font-black text-slate-800 tracking-tight group-hover:text-blue-600 transition-colors leading-none">{boia.nome}</h4>
                                                         </div>
+
+                                                        {/* Box de Identificadores de Hardware (NOVO) */}
+                                                        <div className="p-6 bg-slate-900 rounded-[1.5rem] border border-white/10 shadow-2xl">
+                                                            <span className="text-[11px] font-black text-slate-500 uppercase tracking-[0.3em] block mb-5">Hardware Engine</span>
+                                                            <div className="space-y-4">
+                                                                <div className="flex justify-between items-center border-b border-white/5 pb-3">
+                                                                    <span className="text-[11px] font-black text-blue-400 uppercase tracking-widest">MAC Estação</span>
+                                                                    <code className="text-sm font-black text-white tracking-widest">{boia.mac_boia}</code>
+                                                                </div>
+                                                                <div className="flex justify-between items-center">
+                                                                    <span className="text-[11px] font-black text-emerald-400 uppercase tracking-widest">MAC Gateway</span>
+                                                                    <code className="text-sm font-black text-emerald-100 tracking-widest">{boia.mac_gateway}</code>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
                                                         <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
                                                             <span className={labelClass}>Localização</span>
                                                             <p className="font-bold text-slate-600 text-sm leading-relaxed">
@@ -465,57 +772,69 @@ export default function GestaoEquipamentos() {
                                                                 >
                                                                     <div className="flex justify-between items-start mb-4">
                                                                         <div className="flex items-center gap-3">
-                                                                            <span className="text-2xl bg-white w-10 h-10 rounded-xl flex items-center justify-center shadow-sm border border-slate-100 relative">
-                                                                                {getIcon(sensorId)}
-                                                                                {isOverdue(lim?.ultima_manutencao, lim?.dias_proxima_manutencao) && (
-                                                                                    <span className="absolute -top-2 -right-2 text-sm bg-white rounded-full shadow-sm" title="Manutenção em atraso">⚠️</span>
-                                                                                )}
-                                                                            </span>
+                                                                            <Tooltip text={`Sensor: ${info?.nome || 'Desconhecido'}`}>
+                                                                                <span className="text-2xl bg-white w-10 h-10 rounded-xl flex items-center justify-center shadow-sm border border-slate-100 relative cursor-help">
+                                                                                    {getIcon(sensorId)}
+                                                                                    {isOverdue(lim?.ultima_manutencao, lim?.dias_proxima_manutencao) && (
+                                                                                        <span className="absolute -top-2 -right-2 text-sm bg-white rounded-full shadow-sm">⚠️</span>
+                                                                                    )}
+                                                                                </span>
+                                                                            </Tooltip>
                                                                             <div>
-                                                                                <span className="block text-xs font-black text-slate-400 uppercase tracking-widest">{info?.nome}</span>
+                                                                                <span className="block text-sm font-black text-slate-400 uppercase tracking-widest">{info?.nome}</span>
                                                                                 <span className={`text-2xl font-black ${foraDeIntervalo ? 'text-rose-600' : 'text-slate-800'}`}>
                                                                                     {temLeitura ? (
-                                                                                        <>{ultima?.valor} <small className="text-xs font-bold opacity-40">{info?.unidade}</small></>
-                                                                                    ) : <span className="text-xs opacity-40">---</span>}
+                                                                                        <>{ultima?.valor} <small className="text-sm font-bold opacity-40">{info?.unidade}</small></>
+                                                                                    ) : <span className="text-sm opacity-40">---</span>}
                                                                                 </span>
                                                                             </div>
                                                                         </div>
                                                                         {!isLeitor && (
-                                                                            <button 
-                                                                                onClick={() => removerSensor(boia.id, sensorId)}
-                                                                                className="text-slate-300 hover:text-rose-500 transition-colors p-1"
-                                                                            >✕</button>
+                                                                            <Tooltip text="Remover este sensor" position="left">
+                                                                                <button 
+                                                                                    onClick={() => removerSensor(boia.id, sensorId)}
+                                                                                    className="text-slate-300 hover:text-rose-500 transition-colors p-1"
+                                                                                >✕</button>
+                                                                            </Tooltip>
                                                                         )}
                                                                     </div>
                                                                     
-                                                                    {lim && (
+                                                                    {!isLeitor && lim && (
                                                                         <div className="space-y-4">
                                                                             <div className="grid grid-cols-2 gap-2">
                                                                                 <div className="space-y-1">
-                                                                                    <span className="text-xs font-black text-slate-400 uppercase block tracking-tighter">Min VLE</span>
+                                                                                    <span className="text-sm font-black text-slate-400 uppercase block tracking-tighter">Min VLE</span>
                                                                                     <input 
                                                                                         type="number" defaultValue={lim.valor_minimo}
-                                                                                        disabled={isLeitor}
                                                                                         onChange={(e) => setLimitesEditando({...limitesEditando, [`${boia.id}-${sensorId}`]: {...limitesEditando[`${boia.id}-${sensorId}`], min: e.target.value}})}
                                                                                         className="w-full bg-white border border-slate-200 rounded-lg p-2 text-sm font-black text-center focus:border-blue-500 outline-none"
                                                                                     />
                                                                                 </div>
                                                                                 <div className="space-y-1">
-                                                                                    <span className="text-xs font-black text-slate-400 uppercase block tracking-tighter">Max VLE</span>
+                                                                                    <span className="text-sm font-black text-slate-400 uppercase block tracking-tighter">Max VLE</span>
                                                                                     <input 
                                                                                         type="number" defaultValue={lim.valor_maximo}
-                                                                                        disabled={isLeitor}
                                                                                         onChange={(e) => setLimitesEditando({...limitesEditando, [`${boia.id}-${sensorId}`]: {...limitesEditando[`${boia.id}-${sensorId}`], max: e.target.value}})}
                                                                                         className="w-full bg-white border border-slate-200 rounded-lg p-2 text-sm font-black text-center focus:border-blue-500 outline-none"
                                                                                     />
                                                                                 </div>
                                                                             </div>
-                                                                            {!isLeitor && (
-                                                                                <button 
-                                                                                    onClick={(e) => handleAtualizarLimiteDireto(e, boia.id, sensorId)}
-                                                                                    className="w-full bg-blue-600 text-white py-2 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-900 transition-all shadow-md shadow-blue-100"
-                                                                                >Atualizar VLE</button>
-                                                                            )}
+                                                                            <button 
+                                                                                onClick={(e) => handleAtualizarLimiteDireto(e, boia.id, sensorId)}
+                                                                                className="w-full bg-blue-600 text-white py-2 rounded-xl text-sm font-black uppercase tracking-widest hover:bg-slate-900 transition-all shadow-md shadow-blue-100"
+                                                                            >Atualizar VLE</button>
+                                                                        </div>
+                                                                    )}
+                                                                    {isLeitor && lim && (
+                                                                        <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-50">
+                                                                            <div className="text-center">
+                                                                                <span className="text-[10px] font-black text-slate-300 uppercase block tracking-widest">Min</span>
+                                                                                <span className="text-sm font-black text-slate-600">{lim.valor_minimo}</span>
+                                                                            </div>
+                                                                            <div className="text-center border-l border-slate-50">
+                                                                                <span className="text-[10px] font-black text-slate-300 uppercase block tracking-widest">Max</span>
+                                                                                <span className="text-sm font-black text-slate-600">{lim.valor_maximo}</span>
+                                                                            </div>
                                                                         </div>
                                                                     )}
                                                                 </div>
@@ -534,10 +853,15 @@ export default function GestaoEquipamentos() {
 
                 {/* ABA 2: NOVO REGISTO */}
                 {subAba === 'nova' && (
-                    <div className="max-w-4xl mx-auto space-y-12 animate-fade-in">
+                    <div className="max-w-4xl mx-auto space-y-12 animate-fade-in relative">
+                        {isHelpMode && (
+                            <div className="absolute -top-12 left-0 bg-amber-400 text-amber-950 text-sm font-black p-5 rounded-2xl shadow-xl w-80 z-50 animate-bounce-in border-4 border-white">
+                                ➕ <strong>Novo Registo:</strong> Usa este formulário para adicionar uma nova boia à tua rede. Segue os 3 passos: Identidade, Localização e Sensores.
+                            </div>
+                        )}
                         <header className="text-center space-y-4">
-                            <h2 className="text-5xl font-black text-slate-800 tracking-tight uppercase">Registo de Ativo</h2>
-                            <p className="text-slate-400 font-medium italic">Configuração de Hardware e Georeferenciação de Nova Estação</p>
+                            <h2 className="text-5xl font-black text-slate-800 tracking-tight uppercase">Registo de Aparelho</h2>
+                            <p className="text-slate-400 font-medium italic">Configuração e Localização de Nova Estação</p>
                         </header>
 
                         <form onSubmit={handleCriarInstalacaoCompleta} className="space-y-10">
@@ -558,24 +882,81 @@ export default function GestaoEquipamentos() {
                                             className={inputClass} placeholder="Ex: Estação de Monitorização Lis-01" 
                                         />
                                     </div>
-                                    <div className="bg-slate-900 p-10 rounded-[2.5rem] md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-10 shadow-2xl">
+                                    <div className="bg-slate-900 p-10 rounded-[2.5rem] md:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-10 shadow-2xl">
                                         <div>
-                                            <label className="text-[10px] font-black text-blue-400 uppercase tracking-[0.3em] mb-3 block">MAC: Unidade de Sensores (Água)</label>
-                                            <input 
-                                                type="text" required value={formBoia.mac_boia}
-                                                onChange={e => setFormBoia({ ...formBoia, mac_boia: e.target.value })}
-                                                className="w-full p-4 bg-white/5 border-2 border-white/10 rounded-2xl text-white font-mono focus:border-blue-500 outline-none"
-                                                placeholder="00:00:00:00:00:00"
-                                            />
+                                            <div className="flex justify-between items-end mb-3">
+                                                <label className="text-[10px] font-black text-blue-400 uppercase tracking-[0.3em] block">Endereço da Boia (Água)</label>
+                                                {boiasPendentes.length > 0 && (
+                                                    <span className="text-[9px] font-black text-amber-500 uppercase bg-amber-500/10 px-2 py-0.5 rounded-md animate-pulse">
+                                                        {boiasPendentes.length} detetadas
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="relative group/mac">
+                                                <input 
+                                                    type="text" required value={formBoia.mac_boia}
+                                                    onChange={e => setFormBoia({ ...formBoia, mac_boia: e.target.value.toUpperCase() })}
+                                                    className="w-full p-4 bg-white/5 border-2 border-white/10 rounded-2xl text-white font-mono focus:border-blue-500 outline-none pr-12"
+                                                    placeholder="00:00:00:00:00:00"
+                                                />
+                                                {boiasPendentes.length > 0 && (
+                                                    <div className="absolute right-2 top-2 bottom-2">
+                                                        <select 
+                                                            className="h-full bg-slate-800 text-white border-none rounded-xl text-[10px] font-black uppercase px-2 cursor-pointer hover:bg-slate-700 transition-colors"
+                                                            onChange={(e) => {
+                                                                if (e.target.value) {
+                                                                    const selected = boiasPendentes.find(b => b.mac_boia === e.target.value);
+                                                                    setFormBoia({ 
+                                                                        ...formBoia, 
+                                                                        mac_boia: selected.mac_boia,
+                                                                        mac_gateway: selected.mac_gateway || formBoia.mac_gateway
+                                                                    });
+                                                                }
+                                                            }}
+                                                            value=""
+                                                        >
+                                                            <option value="" disabled>📡 Auto</option>
+                                                            {boiasPendentes.map(b => {
+                                                                const gw = gateways.find(g => g.mac_gateway === b.mac_gateway);
+                                                                return (
+                                                                    <option key={b.id} value={b.mac_boia}>
+                                                                        {b.mac_boia} (via {gw?.nome || 'Ponto de Rede Desconhecido'})
+                                                                    </option>
+                                                                );
+                                                            })}
+                                                        </select>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
                                         <div>
-                                            <label className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.3em] mb-3 block">MAC: Unidade Gateway (Margem)</label>
-                                            <input 
-                                                type="text" required value={formBoia.mac_gateway}
+                                            <label className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.3em] mb-3 block">Ponto de Ligação (Hub)</label>
+                                            <select 
+                                                required value={formBoia.mac_gateway}
                                                 onChange={e => setFormBoia({ ...formBoia, mac_gateway: e.target.value })}
-                                                className="w-full p-4 bg-white/5 border-2 border-white/10 rounded-2xl text-white font-mono focus:border-emerald-500 outline-none"
-                                                placeholder="00:00:00:00:00:00"
-                                            />
+                                                className="w-full p-4 bg-white/5 border-2 border-white/10 rounded-2xl text-white font-black text-sm outline-none focus:border-emerald-500 appearance-none cursor-pointer"
+                                            >
+                                                <option value="" className="bg-slate-900">Selecione o Ponto de Rede...</option>
+                                                {gateways.map(gw => (
+                                                    <option key={gw.id} value={gw.mac_gateway} className="bg-slate-900">
+                                                        {gw.nome} ({gw.mac_gateway})
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-black text-amber-400 uppercase tracking-[0.3em] mb-3 block">Tempo de Hibernação</label>
+                                            <select 
+                                                required value={formBoia.intervalo_segundos}
+                                                onChange={e => setFormBoia({ ...formBoia, intervalo_segundos: parseInt(e.target.value) })}
+                                                className="w-full p-4 bg-white/5 border-2 border-white/10 rounded-2xl text-white font-black text-sm outline-none focus:border-amber-500 appearance-none cursor-pointer"
+                                            >
+                                                <option value="60" className="bg-slate-900">1 Minuto (Teste)</option>
+                                                <option value="300" className="bg-slate-900">5 Minutos (Padrão)</option>
+                                                <option value="900" className="bg-slate-900">15 Minutos</option>
+                                                <option value="3600" className="bg-slate-900">1 Hora (Económico)</option>
+                                                <option value="21600" className="bg-slate-900">6 Horas (Máxima Bateria)</option>
+                                            </select>
                                         </div>
                                     </div>
                                 </div>
@@ -594,8 +975,9 @@ export default function GestaoEquipamentos() {
                                     <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] bg-slate-900 text-white px-6 py-2 rounded-full font-black text-[10px] uppercase tracking-widest shadow-xl">
                                         📍 Marque a posição exata no mapa
                                     </div>
-                                    <MapContainer center={[39.7436, -8.8071]} zoom={13} style={{ height: '100%', width: '100%' }}>
+                                    <MapContainer center={centroMapaNova} zoom={13} style={{ height: '100%', width: '100%' }}>
                                         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                                        <MapController center={centroMapaNova} />
                                         <LocationMarker 
                                             position={formBoia.latitude && formBoia.longitude ? [formBoia.latitude, formBoia.longitude] : null}
                                             setPosition={(pos) => setFormBoia({...formBoia, latitude: pos.lat.toFixed(6), longitude: pos.lng.toFixed(6)})} 
@@ -697,7 +1079,7 @@ export default function GestaoEquipamentos() {
                                     <button 
                                         type="button"
                                         onClick={() => setSensoresForm([...sensoresForm, { tipo_sensor_id: '', valor_minimo: '', valor_maximo: '' }])}
-                                        className="w-full py-4 border-2 border-dashed border-slate-300 rounded-2xl text-slate-400 font-black uppercase text-xs hover:border-blue-500 hover:text-blue-500 transition-all"
+                                        className="w-full py-4 border-2 border-dashed border-slate-300 rounded-2xl text-slate-400 font-black uppercase text-sm hover:border-blue-500 hover:text-blue-500 transition-all"
                                     >
                                         + Adicionar Outro Sensor
                                     </button>
@@ -713,12 +1095,33 @@ export default function GestaoEquipamentos() {
 
                 {/* ABA 3: GESTÃO TÉCNICA (AGENDA) */}
                 {subAba === 'agenda' && (
-                    <div className="space-y-12 animate-fade-in">
+                    <div className="space-y-12 animate-fade-in relative">
+                        {isHelpMode && (
+                            <div className="absolute -top-12 left-0 bg-amber-400 text-amber-950 text-sm font-black p-5 rounded-2xl shadow-xl w-80 z-50 animate-bounce-in border-4 border-white">
+                                📅 <strong>Agenda Técnica:</strong> Esta é a lista de tarefas da tua equipa. Aqui encontras as boias que precisam de calibração, troca de bateria ou manutenção preventiva.
+                            </div>
+                        )}
                         {(() => {
                             const missions = [];
                             
                             boias.forEach(boia => {
-                                // 1. Novos Dispositivos Pendentes
+                                // 0. Diagnóstico de Sinal LoRa (NOVO)
+                                const meuGateway = gateways.find(gw => gw.mac_gateway === boia.mac_gateway);
+                                if (meuGateway && boia.latitude && boia.longitude) {
+                                    // Só damos o aviso se o sinal estiver realmente fraco, ignorando a distância de referência que pode ser enganadora
+                                    if (boia.rssi_ultimo && boia.rssi_ultimo < -115) {
+                                        missions.push({
+                                            id: `signal-${boia.id}`,
+                                            type: 'warning',
+                                            title: 'Sinal LoRa Fraco',
+                                            boiaId: boia.id,
+                                            description: `A boia reportou um sinal crítico (${boia.rssi_ultimo} dBm). Isto pode causar perda de dados, independentemente da distância teórica ao gateway.`,
+                                            action: () => setSubAba('rede')
+                                        });
+                                    }
+                                }
+
+                                // 1. Novos Dispositivos Pendentes... (resto das missões mantido)
                                 (boia.limites || []).forEach(lim => {
                                     const sensorInfo = tiposSensor.find(t => t.id === lim.tipo_sensor_id);
                                     
@@ -805,7 +1208,11 @@ export default function GestaoEquipamentos() {
                                             title: 'Inspeção Física',
                                             boiaId: boia.id,
                                             description: `Ciclo de 15 dias de limpeza de caudal e verificação física expirado.`,
-                                            action: () => handleLogManutencaoGeral(boia.id)
+                                            action: () => {
+                                                setBoiaDetalhe(boia);
+                                                setFormRelatorioManutencao({...formManutencao, tipo: 'limpeza', tipo_sensor_id: null});
+                                                setMostrarTourManutencao(true);
+                                            }
                                         });
                                     }
                                 }
@@ -820,7 +1227,8 @@ export default function GestaoEquipamentos() {
                                         description: `Nível crítico de energia detetado: ${boia.bateria}%. Substituir ou carregar.`,
                                         action: () => {
                                             setBoiaDetalhe(boia);
-                                            setEditandoBoia(true);
+                                            setFormRelatorioManutencao({...formManutencao, tipo: 'reparacao', tipo_sensor_id: null, observacoes: 'Troca/Carga de bateria necessária.'});
+                                            setMostrarTourManutencao(true);
                                         }
                                     });
                                 }
@@ -842,28 +1250,32 @@ export default function GestaoEquipamentos() {
 
                                     {/* Scorecard de Saúde */}
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8 px-4">
-                                        <div className={`${cardClass} p-8 flex flex-col items-center justify-center text-center space-y-3 relative overflow-hidden group`}>
-                                            <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full -mr-12 -mt-12 transition-all group-hover:scale-150"></div>
-                                            <span className="text-5xl">🛡️</span>
-                                            <div>
-                                                <div className="text-4xl font-black text-slate-800">{healthPercentage}%</div>
-                                                <div className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Saúde da Rede</div>
+                                        <Tooltip text="Percentagem de sensores calibrados e em bom estado">
+                                            <div className={`${cardClass} p-8 flex flex-col items-center justify-center text-center space-y-3 relative overflow-hidden group cursor-help`}>
+                                                <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full -mr-12 -mt-12 transition-all group-hover:scale-150"></div>
+                                                <span className="text-5xl">🛡️</span>
+                                                <div>
+                                                    <div className="text-4xl font-black text-slate-800">{healthPercentage}%</div>
+                                                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Saúde da Rede</div>
+                                                </div>
                                             </div>
-                                        </div>
-                                        <div className={`${cardClass} p-8 flex flex-col items-center justify-center text-center space-y-3 relative overflow-hidden group`}>
-                                            <div className="absolute top-0 right-0 w-24 h-24 bg-rose-500/5 rounded-full -mr-12 -mt-12 transition-all group-hover:scale-150"></div>
-                                            <span className="text-5xl">🛠️</span>
-                                            <div>
-                                                <div className="text-4xl font-black text-slate-800">{missions.length}</div>
-                                                <div className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Ações Pendentes</div>
+                                        </Tooltip>
+                                        <Tooltip text="Número total de problemas que requerem intervenção">
+                                            <div className={`${cardClass} p-8 flex flex-col items-center justify-center text-center space-y-3 relative overflow-hidden group cursor-help`}>
+                                                <div className="absolute top-0 right-0 w-24 h-24 bg-rose-500/5 rounded-full -mr-12 -mt-12 transition-all group-hover:scale-150"></div>
+                                                <span className="text-5xl">🛠️</span>
+                                                <div>
+                                                    <div className="text-4xl font-black text-slate-800">{missions.length}</div>
+                                                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Ações Pendentes</div>
+                                                </div>
                                             </div>
-                                        </div>
+                                        </Tooltip>
                                     </div>
 
                                     {/* Lista de Estações (Boias) - Hierarquia Centralizada */}
                                     <div className="space-y-8 px-4">
                                         <div className="flex items-center gap-6">
-                                            <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.4em] whitespace-nowrap">Estado das Estações</h3>
+                                            <h3 className="text-sm font-black text-slate-400 uppercase tracking-[0.4em] whitespace-nowrap">Estado das Estações</h3>
                                             <div className="flex-1 h-[2px] bg-slate-100"></div>
                                         </div>
 
@@ -881,9 +1293,11 @@ export default function GestaoEquipamentos() {
                                                             className="p-8 flex flex-wrap items-center justify-between gap-6 cursor-pointer group"
                                                         >
                                                             <div className="flex items-center gap-6">
-                                                                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl shadow-lg transition-all ${hasUrgent ? 'bg-rose-500 text-white animate-pulse' : 'bg-slate-900 text-white'}`}>
-                                                                    {hasUrgent ? '⚠️' : '🛰️'}
-                                                                </div>
+                                                                <Tooltip text={hasUrgent ? "Atenção: Problemas detetados" : "Estação em funcionamento normal"}>
+                                                                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl shadow-lg transition-all cursor-help ${hasUrgent ? 'bg-rose-500 text-white animate-pulse' : 'bg-slate-900 text-white'}`}>
+                                                                        {hasUrgent ? '⚠️' : '🛰️'}
+                                                                    </div>
+                                                                </Tooltip>
                                                                 <div>
                                                                     <h4 className="text-2xl font-black text-slate-800 uppercase tracking-tighter leading-tight group-hover:text-blue-600">
                                                                         {boia.nome}
@@ -901,12 +1315,14 @@ export default function GestaoEquipamentos() {
                                                             </div>
                                                             
                                                             <div className="flex items-center gap-6">
-                                                                <div className="text-right hidden sm:block">
-                                                                    <div className="text-xs font-black text-slate-400 uppercase tracking-widest">Integridade Física</div>
-                                                                    <div className={`text-lg font-black ${isOverdue(boia.ultima_manutencao, 15) ? 'text-rose-500' : 'text-emerald-500'}`}>
-                                                                        {Math.round(100 - getMaintenanceProgress(boia.ultima_manutencao, 15))}%
+                                                                <Tooltip text="Estimativa de sujidade e desgaste físico" position="left">
+                                                                    <div className="text-right hidden sm:block cursor-help">
+                                                                        <div className="text-sm font-black text-slate-400 uppercase tracking-widest">Integridade Física</div>
+                                                                        <div className={`text-lg font-black ${isOverdue(boia.ultima_manutencao, 15) ? 'text-rose-500' : 'text-emerald-500'}`}>
+                                                                            {Math.round(100 - getMaintenanceProgress(boia.ultima_manutencao, 15))}%
+                                                                        </div>
                                                                     </div>
-                                                                </div>
+                                                                </Tooltip>
                                                                 <div className={`w-10 h-10 rounded-full border-2 border-slate-100 flex items-center justify-center transition-transform duration-300 ${isExpanded ? 'rotate-180 bg-blue-50 border-blue-200 text-blue-600' : 'text-slate-300 group-hover:text-blue-500'}`}>
                                                                     ▼
                                                                 </div>
@@ -927,18 +1343,28 @@ export default function GestaoEquipamentos() {
                                                                     </div>
                                                                     <div className="bg-white p-6 rounded-[2rem] border border-slate-100 flex flex-wrap items-center justify-between gap-6 shadow-sm">
                                                                         <div className="flex items-center gap-4">
-                                                                            <div className="text-3xl">🧹</div>
+                                                                            <Tooltip text="Limpeza manual de algas e resíduos">
+                                                                                <div className="text-3xl cursor-help">🧹</div>
+                                                                            </Tooltip>
                                                                             <div>
-                                                                                <span className="block text-xs font-black text-slate-800 uppercase tracking-widest">Limpeza e Verificação Física</span>
-                                                                                <span className="text-xs font-bold text-slate-400">Última intervenção: {boia.ultima_manutencao ? new Date(boia.ultima_manutencao).toLocaleDateString('pt-PT') : 'Nunca'}</span>
+                                                                                <span className="block text-sm font-black text-slate-800 uppercase tracking-widest">Limpeza e Verificação Física</span>
+                                                                                <span className="text-sm font-bold text-slate-400">Última intervenção: {boia.ultima_manutencao ? new Date(boia.ultima_manutencao).toLocaleDateString('pt-PT') : 'Nunca'}</span>
                                                                             </div>
                                                                         </div>
-                                                                        <button 
-                                                                            onClick={() => handleLogManutencaoGeral(boia.id)}
-                                                                            className="bg-slate-900 text-white px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 transition-all shadow-lg active:scale-95"
-                                                                        >
-                                                                            Registar Limpeza 🛠️
-                                                                        </button>
+                                                                        <Tooltip text="Clique após realizar a limpeza no rio" position="left">
+                                                                          {!isLeitor && (
+                                                                            <button 
+                                                                                onClick={() => {
+                                                                                    setBoiaDetalhe(boia);
+                                                                                    setFormRelatorioManutencao({...formManutencao, tipo: 'limpeza', tipo_sensor_id: null});
+                                                                                    setMostrarTourManutencao(true);
+                                                                                }}
+                                                                                className="bg-slate-900 text-white px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 transition-all shadow-lg active:scale-95"
+                                                                            >
+                                                                                Registar Intervenção 🛠️
+                                                                            </button>
+                                                                          )}
+                                                                        </Tooltip>
                                                                     </div>
                                                                 </section>
 
@@ -955,34 +1381,33 @@ export default function GestaoEquipamentos() {
                                                                                 <div key={lim.tipo_sensor_id} className={`bg-white p-6 rounded-[2rem] border-2 transition-all shadow-sm ${overdue ? 'border-rose-200 bg-rose-50/30' : 'border-slate-100'}`}>
                                                                                     <div className="flex justify-between items-start mb-4">
                                                                                         <div className="flex items-center gap-3">
-                                                                                            <span className="text-xl w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center border border-slate-100">
-                                                                                                {getIcon(lim.tipo_sensor_id)}
-                                                                                            </span>
+                                                                                            <Tooltip text={`Ícone: ${info?.nome}`}>
+                                                                                                <span className="text-xl w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center border border-slate-100 cursor-help">
+                                                                                                    {getIcon(lim.tipo_sensor_id)}
+                                                                                                </span>
+                                                                                            </Tooltip>
                                                                                             <div>
                                                                                                 <span className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">{info?.nome}</span>
-                                                                                                <span className={`text-xs font-black uppercase ${overdue ? 'text-rose-600' : 'text-slate-800'}`}>
+                                                                                                <span className={`text-sm font-black uppercase ${overdue ? 'text-rose-600' : 'text-slate-800'}`}>
                                                                                                     {overdue ? 'Excedido' : 'Calibrado'}
                                                                                                 </span>
                                                                                             </div>
                                                                                         </div>
-                                                                                        <button 
-                                                                                            onClick={() => {
-                                                                                                setBoiaDetalhe(boia);
-                                                                                                setAdicionandoSensor(true);
-                                                                                                setManutencao({
-                                                                                                    boia_id: boia.id,
-                                                                                                    tipo_sensor_id: lim.tipo_sensor_id,
-                                                                                                    valor_minimo: lim.valor_minimo,
-                                                                                                    valor_maximo: lim.valor_maximo,
-                                                                                                    dias_proxima_manutencao: lim.dias_proxima_manutencao
-                                                                                                });
-                                                                                            }}
-                                                                                            className="text-blue-500 hover:text-blue-700 transition-colors p-1"
-                                                                                            title="Calibrar Sensor"
-                                                                                        >
-                                                                                            🔧
-                                                                                        </button>
-                                                                                    </div>
+                                                                                        {!isLeitor && (
+                                                                                          <Tooltip text="Registar calibração manual" position="left">
+                                                                                              <button 
+                                                                                                  onClick={() => {
+                                                                                                      setBoiaDetalhe(boia);
+                                                                                                      setFormRelatorioManutencao({...formManutencao, tipo: 'calibracao', tipo_sensor_id: lim.tipo_sensor_id});
+                                                                                                      setMostrarTourManutencao(true);
+                                                                                                  }}
+                                                                                                  className="text-blue-500 hover:text-blue-700 transition-colors p-1"
+                                                                                              >
+                                                                                                  🔧
+                                                                                              </button>
+                                                                                          </Tooltip>
+                                                                                        )}
+                                                                                        </div>
                                                                                     
                                                                                     <div className="space-y-3">
                                                                                         <div className="flex justify-between text-[10px] font-black uppercase tracking-tighter">
@@ -991,12 +1416,14 @@ export default function GestaoEquipamentos() {
                                                                                                 {calculateNextMaintenance(lim.ultima_manutencao, lim.dias_proxima_manutencao)}
                                                                                             </span>
                                                                                         </div>
-                                                                                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                                                                                            <div 
-                                                                                                className={`h-full transition-all duration-500 ${overdue ? 'bg-rose-500' : progress > 80 ? 'bg-amber-500' : 'bg-emerald-500'}`}
-                                                                                                style={{ width: `${Math.min(progress, 100)}%` }}
-                                                                                            ></div>
-                                                                                        </div>
+                                                                                        <Tooltip text={`Ciclo de vida do sensor: ${Math.round(progress)}% decorrido`}>
+                                                                                            <div className="h-2 bg-slate-100 rounded-full overflow-hidden cursor-help">
+                                                                                                <div 
+                                                                                                    className={`h-full transition-all duration-500 ${overdue ? 'bg-rose-500' : progress > 80 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                                                                                                    style={{ width: `${Math.min(progress, 100)}%` }}
+                                                                                                ></div>
+                                                                                            </div>
+                                                                                        </Tooltip>
                                                                                     </div>
                                                                                 </div>
                                                                             );
@@ -1016,7 +1443,7 @@ export default function GestaoEquipamentos() {
                                                                                             {mission.type === 'critical' ? '🔴' : '🟠'}
                                                                                         </div>
                                                                                         <div>
-                                                                                            <span className="block text-xs font-black text-slate-800 uppercase tracking-widest">{mission.title}</span>
+                                                                                            <span className="block text-sm font-black text-slate-800 uppercase tracking-widest">{mission.title}</span>
                                                                                             <p className="text-[10px] font-bold text-slate-500 italic">"{mission.description}"</p>
                                                                                         </div>
                                                                                     </div>
@@ -1043,7 +1470,7 @@ export default function GestaoEquipamentos() {
                                     {/* Tarefas Pendentes - Visão Global (Resumo) */}
                                     <div className="space-y-8 px-4">
                                         <div className="flex items-center gap-6">
-                                            <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.4em] whitespace-nowrap">Intervenções Prioritárias</h3>
+                                            <h3 className="text-sm font-black text-slate-400 uppercase tracking-[0.4em] whitespace-nowrap">Intervenções Prioritárias</h3>
                                             <div className="flex-1 h-[2px] bg-slate-100"></div>
                                         </div>
                                         
@@ -1051,7 +1478,7 @@ export default function GestaoEquipamentos() {
                                             <div className="p-20 text-center bg-slate-900 rounded-[3rem] border-4 border-dashed border-slate-800">
                                                 <div className="text-6xl mb-6">🛰️</div>
                                                 <h3 className="text-2xl font-black text-white uppercase tracking-widest">Sistemas Nominais</h3>
-                                                <p className="text-slate-500 font-bold mt-2 uppercase text-xs tracking-[0.3em]">Sem tarefas pendentes na rede HidroBox</p>
+                                                <p className="text-slate-500 font-bold mt-2 uppercase text-sm tracking-[0.3em]">Sem tarefas pendentes na rede HidroBox</p>
                                             </div>
                                         ) : (
                                             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
@@ -1111,6 +1538,340 @@ export default function GestaoEquipamentos() {
                                 </>
                             );
                         })()}
+                    </div>
+                )}
+
+                {/* ABA 4: HUB DE REDE (INFRAESTRUTURA) */}
+                {subAba === 'rede' && (
+                    <div className="space-y-12 animate-fade-in relative">
+                        {isHelpMode && (
+                            <div className="absolute -top-12 right-0 bg-amber-400 text-amber-950 text-xs font-black p-4 rounded-2xl shadow-xl w-72 z-50 animate-bounce-in border-4 border-white">
+                                📡 <strong>Hub de Rede:</strong> Aqui geres as antenas (Gateways) que recebem os dados das boias. Se uma boia estiver fora do círculo verde, pode perder o sinal!
+                            </div>
+                        )}
+                        {/* Alerta de Descoberta de Gateway */}
+                        {gateways.some(gw => gw.estado === 'pendente') && (
+                            <section className="mx-4 bg-emerald-50 border-2 border-emerald-200 p-6 rounded-[2rem] shadow-lg shadow-emerald-200/20 flex flex-col md:flex-row items-center justify-between gap-6">
+                                <div className="flex items-center gap-5">
+                                    <div className="w-14 h-14 bg-emerald-500 rounded-2xl flex items-center justify-center text-2xl shadow-lg shadow-emerald-500/40 text-white">
+                                        📡
+                                    </div>
+                                    <div>
+                                        <h3 className="text-xl font-black text-emerald-900 uppercase tracking-tight">Novo Hub Detetado!</h3>
+                                        <p className="text-emerald-700 font-bold text-sm uppercase tracking-widest mt-1">
+                                            Gateway ativo a aguardar parametrização: <span className="font-black text-emerald-950 underline">{gateways.find(gw => gw.estado === 'pendente').mac_gateway}</span>
+                                        </p>
+                                    </div>
+                                </div>
+                                <button 
+                                    onClick={() => {
+                                        const gw = gateways.find(gw => gw.estado === 'pendente');
+                                        setFormGateway({
+                                            ...formGateway,
+                                            mac_gateway: gw.mac_gateway,
+                                            nome: gw.nome
+                                        });
+                                        // Scroll para o formulário
+                                        document.getElementById('form-gateway')?.scrollIntoView({ behavior: 'smooth' });
+                                    }}
+                                    className="bg-emerald-950 text-white px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all shadow-xl"
+                                >
+                                    Configurar Hub
+                                </button>
+                            </section>
+                        )}
+
+                        <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-4">
+                            <div>
+                                <h2 className="text-5xl font-black text-slate-800 tracking-tight uppercase leading-none">Hub de Rede</h2>
+                                <p className="text-slate-400 font-medium italic text-lg mt-2">Gestão de Gateways LoRaWAN e Topologia de Cobertura</p>
+                            </div>
+                        </header>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-12 px-4">
+                                    {/* Formulário de Novo Gateway */}
+                                    {(isAdmin || isTecnico) && (
+                                        <div className="space-y-8 lg:col-span-1">
+                                            <section className={`${cardClass} p-10 space-y-8 h-fit`}>
+                                                <div className="flex items-center gap-4 border-b-4 border-emerald-500 pb-2">
+                                                    <span className="text-3xl">📡</span>
+                                                    <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Registar Gateway</h3>
+                                                </div>
+                                                <form onSubmit={handleCriarGateway} className="space-y-6">
+                                                    <div>
+                                                        <label className={labelClass}>Nome da Torre</label>
+                                                        <input 
+                                                            type="text" required value={formGateway.nome}
+                                                            onChange={e => setFormGateway({...formGateway, nome: e.target.value})}
+                                                            className={inputClass} placeholder="Ex: Gateway Porto-01"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className={labelClass}>Endereço MAC (Fixo)</label>
+                                                        <input 
+                                                            type="text" required value={formGateway.mac_gateway}
+                                                            onChange={e => setFormGateway({...formGateway, mac_gateway: e.target.value})}
+                                                            className={`${inputClass} font-mono`} placeholder="AA:BB:CC:DD:EE:FF"
+                                                        />
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-4">
+                                                        <div>
+                                                            <label className={labelClass}>Latitude</label>
+                                                            <input type="number" step="any" value={formGateway.latitude} onChange={e => setFormGateway({...formGateway, latitude: e.target.value})} className={inputClass} />
+                                                        </div>
+                                                        <div>
+                                                            <label className={labelClass}>Longitude</label>
+                                                            <input type="number" step="any" value={formGateway.longitude} onChange={e => setFormGateway({...formGateway, longitude: e.target.value})} className={inputClass} />
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <div className="flex justify-between items-end mb-2">
+                                                            <label className={labelClass}>Raio de Cobertura (m)</label>
+                                                            <button 
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    if (!formGateway.mac_gateway) return mostrarMensagem('Insira o MAC para calibrar.', 'erro');
+                                                                    const minhasBoias = boias.filter(b => b.mac_gateway === formGateway.mac_gateway && b.latitude && b.longitude && b.rssi_ultimo);
+                                                                    if (minhasBoias.length === 0) return mostrarMensagem('Sem boias ativas para calibrar.', 'erro');
+                                                                    
+                                                                    // Encontrar a boia mais distante que ainda tenha sinal estável (> -115)
+                                                                    const boiasEstaveis = minhasBoias.filter(b => b.rssi_ultimo > -115);
+                                                                    if (boiasEstaveis.length === 0) return mostrarMensagem('Sinal crítico em todas as boias.', 'erro');
+
+                                                                    const distancias = boiasEstaveis.map(b => {
+                                                                        if (!formGateway.latitude || !formGateway.longitude) return 0;
+                                                                        return calculateDistance(Number(formGateway.latitude), Number(formGateway.longitude), Number(b.latitude), Number(b.longitude));
+                                                                    });
+
+                                                                    const maxDist = Math.max(...distancias);
+                                                                    const raioSeguro = Math.ceil(maxDist * 1.1); // 10% de margem de segurança
+                                                                    setFormGateway({ ...formGateway, raio_cobertura: raioSeguro });
+                                                                    mostrarMensagem(`Raio calibrado para ${raioSeguro}m baseado na telemetria.`, 'sucesso');
+                                                                }}
+                                                                className="text-[9px] font-black text-blue-600 uppercase tracking-widest hover:underline"
+                                                            >
+                                                                ⚡ Calibrar por Telemetria
+                                                            </button>
+                                                        </div>
+                                                        <input type="number" value={formGateway.raio_cobertura} onChange={e => setFormGateway({...formGateway, raio_cobertura: e.target.value})} className={inputClass} />
+                                                    </div>
+                                                    <button type="submit" className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-slate-900 transition-all shadow-lg shadow-emerald-100">
+                                                        Ativar Infraestrutura ⚡
+                                                    </button>
+                                                </form>
+                                            </section>
+
+                                            {/* Guia de Referência Técnica */}
+                                            <section className="bg-slate-900 rounded-[2rem] p-8 text-white space-y-6 shadow-2xl border border-white/10">
+                                                <div className="flex items-center gap-3 border-b border-white/10 pb-4">
+                                                    <span className="text-2xl">📖</span>
+                                                    <h4 className="text-lg font-black uppercase tracking-widest text-blue-400">Guia de Referência LoRa</h4>
+                                                </div>
+                                                
+                                                <div className="space-y-6">
+                                                    <div>
+                                                        <span className="text-xs font-black text-slate-500 uppercase tracking-widest block mb-2">Alcance Típico (Raio)</span>
+                                                        <ul className="text-base space-y-2 font-bold text-slate-300">
+                                                            <li className="flex justify-between"><span>🏙️ Urbano Denso</span> <span className="text-white">500m - 1km</span></li>
+                                                            <li className="flex justify-between"><span>🌳 Campo / Rio</span> <span className="text-white">2km - 5km</span></li>
+                                                            <li className="flex justify-between"><span>🗼 Linha de Vista</span> <span className="text-white">Up to 10km</span></li>
+                                                        </ul>
+                                                    </div>
+
+                                                    <div className="p-4 bg-white/5 rounded-xl border border-white/5">
+                                                        <span className="text-xs font-black text-slate-500 uppercase tracking-widest block mb-2">Diagnóstico de Sinal (RSSI)</span>
+                                                        <div className="grid grid-cols-2 gap-4 text-xs font-black uppercase tracking-tighter">
+                                                            <div className="text-emerald-400 border-l-2 border-emerald-500 pl-2">
+                                                                -30 a -90dBm
+                                                                <span className="block text-slate-500 font-black lowercase italic mt-1 text-sm">Excelente</span>
+                                                            </div>
+                                                            <div className="text-amber-400 border-l-2 border-amber-500 pl-2">
+                                                                -90 a -115dBm
+                                                                <span className="block text-slate-500 font-black lowercase italic mt-1 text-sm">Estável</span>
+                                                            </div>
+                                                            <div className="text-rose-400 border-l-2 border-rose-500 pl-2 col-span-2 mt-2">
+                                                                -115 a -130dBm
+                                                                <span className="block text-slate-500 font-black lowercase italic mt-1 text-sm">Limite Crítico / Perda de Dados</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <p className="text-xs leading-relaxed text-slate-400 font-medium italic">
+                                                        * A altura da antena do Gateway é o fator mais importante para o alcance real.
+                                                    </p>
+                                                </div>
+                                            </section>
+                                        </div>
+                                    )}
+
+                            {/* Lista de Gateways e Mapa de Cobertura */}
+                            <section className="lg:col-span-2 space-y-8">
+                                <div className={`${cardClass} p-2 h-[500px] shadow-2xl relative overflow-hidden`}>
+                                    <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] bg-slate-900 text-white px-6 py-2 rounded-full font-black text-[10px] uppercase tracking-widest shadow-xl pointer-events-none">
+                                        📍 Clique no mapa para posicionar a torre
+                                    </div>
+                                    <MapContainer center={[39.7436, -8.8071]} zoom={13} style={{ height: '100%', width: '100%' }}>
+                                        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                                        
+                                        {/* Captura de clique para novo Gateway */}
+                                        <LocationMarker 
+                                            position={formGateway.latitude && formGateway.longitude ? [formGateway.latitude, formGateway.longitude] : null}
+                                            setPosition={(pos) => setFormGateway({...formGateway, latitude: pos.lat.toFixed(6), longitude: pos.lng.toFixed(6)})} 
+                                        />
+
+                                        {/* Desenhar Gateways e seus raios */}
+                                        {gateways.map(gw => (
+                                            <React.Fragment key={`gw-infra-${gw.id}`}>
+                                                {gw.latitude && gw.longitude && (
+                                                    <>
+                                                        <Marker position={[gw.latitude, gw.longitude]} icon={towerIcon}>
+                                                            <Popup>
+                                                                <div className="p-2 font-black">
+                                                                    <div className="text-blue-600 uppercase text-[10px] tracking-widest">Gateway Ativo</div>
+                                                                    <div className="text-lg">{gw.nome}</div>
+                                                                    <div className="text-sm text-slate-400 mt-1">MAC: {gw.mac_gateway}</div>
+                                                                </div>
+                                                            </Popup>
+                                                        </Marker>
+                                                        <Circle 
+                                                            center={[gw.latitude, gw.longitude]} 
+                                                            radius={gw.raio_cobertura} 
+                                                            pathOptions={{ color: '#10b981', fillColor: '#10b981', fillOpacity: 0.1, weight: 1 }}
+                                                        />
+                                                    </>
+                                                )}
+                                            </React.Fragment>
+                                        ))}
+
+                                        {/* Desenhar Boias e Linhas de Conexão */}
+                                        {boias.map(boia => {
+                                            if (!boia.latitude || !boia.longitude) return null;
+                                            
+                                            const meuGateway = gateways.find(gw => gw.mac_gateway === boia.mac_gateway);
+                                            const dist = meuGateway ? calculateDistance(boia.latitude, boia.longitude, meuGateway.latitude, meuGateway.longitude) : null;
+                                            const foraDeAlcance = dist && dist > meuGateway.raio_cobertura;
+
+                                            return (
+                                                <React.Fragment key={`boia-infra-${boia.id}`}>
+                                                    <Marker position={[boia.latitude, boia.longitude]}>
+                                                        <Popup>
+                                                            <div className="p-2 font-black">
+                                                                <div className="text-sm uppercase text-slate-400 tracking-widest">Estação Remota</div>
+                                                                <div className="text-lg">{boia.nome}</div>
+                                                                {meuGateway && (
+                                                                    <div className={`mt-2 p-2 rounded-lg text-[10px] ${foraDeAlcance ? 'bg-rose-500 text-white animate-pulse' : 'bg-slate-100 text-slate-600'}`}>
+                                                                        📡 Distância ao Hub: {Math.round(dist)}m
+                                                                        {foraDeAlcance && <div className="font-black uppercase mt-1">⚠️ Fora de Alcance!</div>}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </Popup>
+                                                    </Marker>
+
+                                                    {/* Linha visual de telemetria */}
+                                                    {meuGateway && meuGateway.latitude && (
+                                                        <Polyline 
+                                                            positions={[
+                                                                [boia.latitude, boia.longitude],
+                                                                [meuGateway.latitude, meuGateway.longitude]
+                                                            ]}
+                                                            pathOptions={{ 
+                                                                color: foraDeAlcance ? '#f43f5e' : '#3b82f6', 
+                                                                weight: 2, 
+                                                                dashArray: '10, 10',
+                                                                opacity: 0.6 
+                                                            }}
+                                                        />
+                                                    )}
+                                                </React.Fragment>
+                                            );
+                                        })}
+                                    </MapContainer>
+                                </div>
+
+                                {/* Grid de Cards de Gateways */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    {gateways.map(gw => (
+                                        <div key={gw.id} className={`${cardClass} p-8 flex flex-col justify-between border-l-8 border-emerald-500`}>
+                                            <div className="flex justify-between items-start">
+                                                <div>
+                                                    <h4 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">{gw.nome}</h4>
+                                                    <code className="text-sm font-black text-slate-400 tracking-widest block mt-1">{gw.mac_gateway}</code>
+                                                </div>
+                                                <span className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${gw.estado === 'ativo' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
+                                                    {gw.estado}
+                                                </span>
+                                            </div>
+                                            <div className="mt-8 pt-6 border-t border-slate-100">
+                                                <div className="flex justify-between items-end mb-4">
+                                                    <div>
+                                                        <span className="text-[10px] font-black text-slate-400 uppercase block tracking-widest">Boias Conectadas</span>
+                                                        <span className="text-2xl font-black text-blue-600">{boias.filter(b => b.mac_gateway === gw.mac_gateway).length}</span>
+                                                    </div>
+                                                    <div className="flex gap-4 items-center">
+                                                        {(isAdmin || isTecnico) && (
+                                                            <Tooltip text="Ajustar raio de cobertura com base na distância real das boias" position="left">
+                                                                <button 
+                                                                    onClick={() => recalibrarRaioGateway(gw)}
+                                                                    className="text-blue-500 hover:text-blue-700 text-[10px] font-black uppercase tracking-widest transition-colors"
+                                                                >
+                                                                    Recalibrar Raio ⚡
+                                                                </button>
+                                                            </Tooltip>
+                                                        )}
+                                                        {isAdmin && (
+                                                            <Tooltip text="Remover este ponto de rede do sistema" position="left">
+                                                                <button onClick={() => removerGateway(gw.id)} className="text-rose-300 hover:text-rose-600 text-[10px] font-black uppercase tracking-widest transition-colors">Remover Torre 🗑️</button>
+                                                            </Tooltip>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {/* Lista de Boias Vinculadas (NOVO) */}
+                                                <div className="space-y-2 max-h-40 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-100">
+                                                    {boias.filter(b => b.mac_gateway === gw.mac_gateway).map(b => (
+                                                        <div key={b.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100 group/item">
+                                                            <div className="flex items-center gap-3">
+                                                            <span className="text-2xl">🛰️</span>
+                                                            <div>
+                                                                <span className="text-base font-black text-slate-700 block leading-none">{b.nome}</span>
+                                                                <span className="text-sm font-bold text-slate-400 uppercase tracking-tight mt-1">{b.mac_boia}</span>
+                                                            </div>
+                                                            </div>
+                                                            <Tooltip text={`Sinal de rede: ${!b.rssi_ultimo ? 'Sem dados' : b.rssi_ultimo + ' dBm'}`} position="left">
+                                                                <div className="flex items-center gap-3 cursor-help">
+                                                                <span className={`text-sm font-black ${
+                                                                    !b.rssi_ultimo ? 'text-slate-300' :
+                                                                    b.rssi_ultimo > -90 ? 'text-emerald-500' :
+                                                                    b.rssi_ultimo > -115 ? 'text-amber-500' : 'text-rose-500'
+                                                                }`}>
+                                                                    {b.rssi_ultimo ? `${b.rssi_ultimo} dBm` : '---'}
+                                                                </span>
+                                                                    <div className="flex gap-0.5 items-end h-2.5">
+                                                                        {[1, 2, 3].map(bar => {
+                                                                            const strength = b.rssi_ultimo ? (b.rssi_ultimo + 140) / 110 : 0;
+                                                                            return <div key={bar} className={`w-0.5 rounded-full ${strength > (bar/3) ? (strength > 0.6 ? 'bg-emerald-400' : 'bg-amber-400') : 'bg-slate-200'}`} style={{ height: `${bar * 33}%` }}></div>
+                                                                        })}
+                                                                    </div>
+                                                                </div>
+                                                            </Tooltip>
+                                                        </div>
+                                                    ))}
+                                                    {boias.filter(b => b.mac_gateway === gw.mac_gateway).length === 0 && (
+                                                        <div className="text-[10px] font-bold text-slate-300 italic text-center py-2 uppercase">Nenhuma boia vinculada</div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {gateways.length === 0 && (
+                                        <div className="col-span-2 p-12 text-center bg-slate-50 rounded-[2.5rem] border-2 border-dashed border-slate-200 text-slate-400 font-bold">
+                                            Nenhum gateway registado na infraestrutura.
+                                        </div>
+                                    )}
+                                </div>
+                            </section>
+                        </div>
                     </div>
                 )}
 
@@ -1218,23 +1979,54 @@ export default function GestaoEquipamentos() {
                                             </div>
                                         </div>
                                         <div className="space-y-4">
+                                            <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest block">Configurações de Energia</label>
+                                            <div className="bg-white/5 p-4 rounded-2xl border-2 border-white/10 flex items-center justify-between gap-4">
+                                                <div className="flex items-center gap-3">
+                                                    <span className="text-xl">💤</span>
+                                                    <div>
+                                                        <span className="text-[10px] font-black text-slate-500 uppercase block tracking-widest">Tempo de Hibernação</span>
+                                                        <span className="text-xs font-bold text-slate-300 italic">(Deep Sleep)</span>
+                                                    </div>
+                                                </div>
+                                                <select 
+                                                    value={formEditBoia.intervalo_segundos || 300}
+                                                    onChange={e => setFormEditBoia({...formEditBoia, intervalo_segundos: parseInt(e.target.value)})}
+                                                    className="bg-slate-800 text-white border border-white/20 rounded-xl text-xs font-black uppercase px-4 py-2 outline-none focus:border-blue-500"
+                                                >
+                                                    <option value="60">1 Minuto</option>
+                                                    <option value="300">5 Minutos</option>
+                                                    <option value="900">15 Minutos</option>
+                                                    <option value="3600">1 Hora</option>
+                                                    <option value="21600">6 Horas</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div className="space-y-4">
                                             <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest block">Interfaces de Rede (MAC)</label>
                                             <input 
                                                 type="text" placeholder="MAC Boia" value={formEditBoia.mac_boia}
                                                 onChange={e => setFormEditBoia({...formEditBoia, mac_boia: e.target.value})}
                                                 className="w-full p-4 bg-white/5 border-2 border-white/10 rounded-2xl font-mono text-sm text-blue-300 outline-none focus:border-blue-500"
                                             />
-                                            <input 
-                                                type="text" placeholder="MAC Gateway" value={formEditBoia.mac_gateway}
+                                            <select 
+                                                value={formEditBoia.mac_gateway}
                                                 onChange={e => setFormEditBoia({...formEditBoia, mac_gateway: e.target.value})}
-                                                className="w-full p-4 bg-white/5 border-2 border-white/10 rounded-2xl font-mono text-sm text-emerald-300 outline-none focus:border-emerald-500"
-                                            />
+                                                className="w-full p-4 bg-white/5 border-2 border-white/10 rounded-2xl font-black text-sm text-emerald-300 outline-none focus:border-emerald-500 appearance-none cursor-pointer"
+                                            >
+                                                <option value="" className="bg-slate-900">Selecionar Gateway Hub...</option>
+                                                {gateways.map(gw => (
+                                                    <option key={gw.id} value={gw.mac_gateway} className="bg-slate-900">
+                                                        {gw.nome} ({gw.mac_gateway})
+                                                    </option>
+                                                ))}
+                                            </select>
                                         </div>
                                         <div className="space-y-4">
                                             <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest block">Correção de Geo-Referência</label>
                                             <div className="h-48 w-full rounded-3xl overflow-hidden border-2 border-white/10 relative group shadow-2xl">
                                                 <MapContainer center={[formEditBoia.latitude || 39.7436, formEditBoia.longitude || -8.8071]} zoom={13} style={{ height: '100%', width: '100%' }}>
                                                     <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                                                    <MapController center={[formEditBoia.latitude || 39.7436, formEditBoia.longitude || -8.8071]} />
                                                     <LocationMarker 
                                                         position={formEditBoia.latitude && formEditBoia.longitude ? [formEditBoia.latitude, formEditBoia.longitude] : null}
                                                         setPosition={(pos) => setFormEditBoia({...formEditBoia, latitude: pos.lat.toFixed(6), longitude: pos.lng.toFixed(6)})} 
@@ -1257,16 +2049,33 @@ export default function GestaoEquipamentos() {
                                     <section className="space-y-6">
                                         <div className="p-8 bg-white/5 rounded-[2.5rem] border border-white/10 relative overflow-hidden group">
                                             <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl -mr-16 -mt-16"></div>
-                                            <label className="text-xs font-black text-blue-400 uppercase tracking-[0.4em] block mb-4">Identificação Principal</label>
+                                            <label className="text-sm font-black text-blue-400 uppercase tracking-[0.4em] block mb-4">Identificação Principal</label>
                                             <div className="text-5xl font-black text-white tracking-tighter mb-2">{boiaDetalhe.nome}</div>
-                                            <div className="flex items-center gap-4">
-                                                <span className="px-3 py-1 bg-emerald-500/20 text-emerald-400 rounded-lg text-xs font-black uppercase tracking-widest border border-emerald-500/30">
-                                                    ● {boiaDetalhe.estado}
-                                                </span>
-                                                <span className="px-3 py-1 bg-white/5 text-slate-400 rounded-lg text-xs font-black uppercase tracking-widest border border-white/10">
-                                                    Bateria: {boiaDetalhe.bateria}%
-                                                </span>
-                                            </div>
+                                            
+                                            {/* Cálculo de Estado Real para a Ficha Técnica */}
+                                            {(() => {
+                                                const ultimaMsg = boiaDetalhe.updated_at ? new Date(boiaDetalhe.updated_at) : new Date(boiaDetalhe.created_at);
+                                                const minsDesdeUltima = (new Date() - ultimaMsg) / (1000 * 60);
+                                                const isOff = minsDesdeUltima > 5 && boiaDetalhe.estado === 'ativa';
+                                                
+                                                return (
+                                                    <div className="flex items-center gap-4">
+                                                        <span className={`px-3 py-1 rounded-lg text-sm font-black uppercase tracking-widest border ${
+                                                            isOff ? 'bg-slate-500/20 text-slate-400 border-slate-500/30' : 
+                                                            boiaDetalhe.estado === 'ativa' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 
+                                                            'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                                                        }`}>
+                                                            ● {isOff ? 'Desconectada' : boiaDetalhe.estado}
+                                                        </span>
+                                                        <span className="px-3 py-1 bg-white/5 text-slate-400 rounded-lg text-sm font-black uppercase tracking-widest border border-white/10">
+                                                            Bateria: {boiaDetalhe.bateria}%
+                                                        </span>
+                                                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                                                            Atividade: {Math.floor(minsDesdeUltima)}m atrás
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })()}
                                         </div>
                                     </section>
 
@@ -1274,14 +2083,13 @@ export default function GestaoEquipamentos() {
                                         <div className="bg-white/5 p-6 rounded-[2rem] border border-white/10 space-y-4">
                                             <div className="flex justify-between items-center">
                                                 <div>
-                                                    <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest block mb-1">Estado de Limpeza</span>
-                                                    <span className="text-xs font-bold text-slate-400 italic">Ciclo de 15 dias</span>
+                                                    <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest block mb-1">Integridade Física</span>
+                                                    <span className="text-sm font-bold text-slate-400 italic">Ciclo de Inspeção</span>
                                                 </div>
                                                 <div className="text-right">
                                                     <span className={`text-lg font-black ${isOverdue(boiaDetalhe.ultima_manutencao, 15) ? 'text-rose-500' : 'text-emerald-500'}`}>
                                                         {Math.round(100 - getMaintenanceProgress(boiaDetalhe.ultima_manutencao, 15))}%
                                                     </span>
-                                                    <span className="text-[10px] font-black text-slate-600 uppercase block">Integridade</span>
                                                 </div>
                                             </div>
                                             
@@ -1295,26 +2103,64 @@ export default function GestaoEquipamentos() {
 
                                             <div className="flex justify-between items-center pt-2">
                                                 <div>
-                                                    <span className="text-[10px] font-black text-slate-500 uppercase block">Última Intervenção</span>
+                                                    <span className="text-[10px] font-black text-slate-500 uppercase block">Última Limpeza</span>
                                                     <span className="text-sm font-bold text-blue-300">
                                                         {boiaDetalhe.ultima_manutencao ? new Date(boiaDetalhe.ultima_manutencao).toLocaleDateString('pt-PT') : 'Sem registo'}
                                                     </span>
                                                 </div>
                                                 {!isLeitor && (
                                                     <button 
-                                                        onClick={() => handleLogManutencaoGeral(boiaDetalhe.id)}
-                                                        className="bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-xl transition-all shadow-lg shadow-blue-900/20"
+                                                        onClick={() => setMostrarTourManutencao(true)}
+                                                        className="bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-xl transition-all shadow-lg shadow-blue-900/20 flex items-center gap-2"
                                                     >
-                                                        Registar Limpeza 🛠️
+                                                        <span>🛠️</span> Registar Intervenção
                                                     </button>
                                                 )}
                                             </div>
                                         </div>
                                     </section>
 
+                                    {/* HISTÓRICO DE INTERVENÇÕES (MELHORADO) */}
+                                    <section className="space-y-6 px-2">
+                                        <label className="text-base font-black text-blue-400 uppercase tracking-[0.4em] block">Histórico de Campo</label>
+                                        <div className="space-y-4">
+                                            {boiaDetalhe.manutencoes && boiaDetalhe.manutencoes.length > 0 ? (
+                                                boiaDetalhe.manutencoes.slice(0, 8).map(m => (
+                                                    <div key={m.id} className="bg-white/5 p-6 rounded-[2rem] border border-white/10 flex gap-6 items-start group hover:bg-white/10 transition-all">
+                                                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 shadow-lg text-2xl ${
+                                                            m.estado_geral === 'bom' ? 'bg-emerald-500/20 text-emerald-400' : 
+                                                            m.estado_geral === 'regular' ? 'bg-amber-500/20 text-amber-400' : 'bg-rose-500/20 text-rose-400'
+                                                        }`}>
+                                                            {m.tipo === 'limpeza' ? '🧹' : m.tipo === 'calibracao' ? '🔧' : '🛠️'}
+                                                        </div>
+                                                        <div className="flex-1 space-y-2">
+                                                            <div className="flex justify-between items-center">
+                                                                <span className="text-xs font-black uppercase tracking-widest text-blue-400">
+                                                                    {m.tipo} {m.tipo_sensor ? `(${m.tipo_sensor.nome})` : ''}
+                                                                </span>
+                                                                <span className="text-xs font-bold text-slate-500">{new Date(m.data_intervencao).toLocaleDateString('pt-PT')}</span>
+                                                            </div>
+                                                            <p className="text-sm text-slate-200 leading-relaxed font-medium italic">"{m.observacoes || 'Sem notas registadas.'}"</p>
+                                                            <div className="pt-2 border-t border-white/5 flex justify-between items-center">
+                                                                <span className="text-[10px] font-black text-slate-500 uppercase">Técnico: <span className="text-slate-300">{m.user?.name}</span></span>
+                                                                {m.estado_geral && (
+                                                                    <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-white/5 text-slate-400">Estado: {m.estado_geral}</span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <div className="text-center p-12 bg-white/5 rounded-[2.5rem] border border-dashed border-white/10 text-slate-500 text-sm font-bold uppercase tracking-widest">
+                                                    Sem intervenções registadas
+                                                </div>
+                                            )}
+                                        </div>
+                                    </section>
+
                                     <section className="space-y-6">
                                         <div className="flex justify-between items-center px-2">
-                                            <label className="text-xs font-black text-blue-400 uppercase tracking-[0.4em] block">Limites Operacionais</label>
+                                            <label className="text-sm font-black text-blue-400 uppercase tracking-[0.4em] block">Limites Operacionais</label>
                                             {!isLeitor && (
                                                 <button 
                                                     onClick={() => {
@@ -1342,7 +2188,7 @@ export default function GestaoEquipamentos() {
                                                     <select
                                                         required value={manutencao.tipo_sensor_id}
                                                         onChange={e => setManutencao({ ...manutencao, tipo_sensor_id: e.target.value })}
-                                                        className="w-full p-4 bg-white/5 border-2 border-white/10 rounded-2xl text-white font-black text-xs outline-none focus:border-emerald-500"
+                                                        className="w-full p-4 bg-white/5 border-2 border-white/10 rounded-2xl text-white font-black text-sm outline-none focus:border-emerald-500"
                                                     >
                                                         <option value="" className="bg-slate-900">Selecionar Parâmetro...</option>
                                                         {tiposSensor.filter(t => 
@@ -1351,10 +2197,10 @@ export default function GestaoEquipamentos() {
                                                         ).map(t => <option key={t.id} value={t.id} className="bg-slate-900">{t.nome} ({t.unidade})</option>)}
                                                     </select>
                                                     <div className="grid grid-cols-2 gap-4">
-                                                        <input type="number" step="any" placeholder="Min VLE" value={manutencao.valor_minimo} onChange={e => setManutencao({ ...manutencao, valor_minimo: e.target.value })} className="w-full p-4 bg-white/5 border-2 border-white/10 rounded-2xl text-white font-black text-xs outline-none focus:border-emerald-500" />
-                                                        <input type="number" step="any" placeholder="Max VLE" value={manutencao.valor_maximo} onChange={e => setManutencao({ ...manutencao, valor_maximo: e.target.value })} className="w-full p-4 bg-white/5 border-2 border-white/10 rounded-2xl text-white font-black text-xs outline-none focus:border-emerald-500" />
+                                                        <input type="number" step="any" placeholder="Min VLE" value={manutencao.valor_minimo} onChange={e => setManutencao({ ...manutencao, valor_minimo: e.target.value })} className="w-full p-4 bg-white/5 border-2 border-white/10 rounded-2xl text-white font-black text-sm outline-none focus:border-emerald-500" />
+                                                        <input type="number" step="any" placeholder="Max VLE" value={manutencao.valor_maximo} onChange={e => setManutencao({ ...manutencao, valor_maximo: e.target.value })} className="w-full p-4 bg-white/5 border-2 border-white/10 rounded-2xl text-white font-black text-sm outline-none focus:border-emerald-500" />
                                                     </div>
-                                                    <input type="number" placeholder="Ciclo Manut. (Dias)" value={manutencao.dias_proxima_manutencao} onChange={e => setManutencao({ ...manutencao, dias_proxima_manutencao: e.target.value })} className="w-full p-4 bg-white/5 border-2 border-white/10 rounded-2xl text-white font-black text-xs outline-none focus:border-emerald-500" />
+                                                    <input type="number" placeholder="Ciclo Manut. (Dias)" value={manutencao.dias_proxima_manutencao} onChange={e => setManutencao({ ...manutencao, dias_proxima_manutencao: e.target.value })} className="w-full p-4 bg-white/5 border-2 border-white/10 rounded-2xl text-white font-black text-sm outline-none focus:border-emerald-500" />
                                                     <button 
                                                         onClick={handleAdicionarSensorExistente}
                                                         className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-500 transition-all shadow-lg shadow-emerald-900/20"
@@ -1399,13 +2245,13 @@ export default function GestaoEquipamentos() {
                                                         </div>
                                                         <div className="grid grid-cols-2 gap-10">
                                                             <div className="space-y-2">
-                                                                <span className="text-xs font-black text-slate-500 uppercase tracking-widest">Mínimo (VLE)</span>
+                                                                <span className="text-sm font-black text-slate-500 uppercase tracking-widest">Mínimo (VLE)</span>
                                                                 <div className="text-4xl font-black text-white">
                                                                     {lim.valor_minimo} <small className="text-sm font-bold text-slate-500">{info?.unidade}</small>
                                                                 </div>
                                                             </div>
                                                             <div className="space-y-2">
-                                                                <span className="text-xs font-black text-slate-500 uppercase tracking-widest">Máximo (VLE)</span>
+                                                                <span className="text-sm font-black text-slate-500 uppercase tracking-widest">Máximo (VLE)</span>
                                                                 <div className="text-4xl font-black text-white">
                                                                     {lim.valor_maximo} <small className="text-sm font-bold text-slate-500">{info?.unidade}</small>
                                                                 </div>
@@ -1414,7 +2260,7 @@ export default function GestaoEquipamentos() {
                                                         <div className="mt-4 pt-4 border-t border-white/5 flex justify-between items-end">
                                                             <div>
                                                                 <span className="text-[10px] font-black text-slate-500 uppercase block">Próxima Manutenção</span>
-                                                                <span className={`text-xs font-bold ${isOverdue(lim.ultima_manutencao, lim.dias_proxima_manutencao) ? 'text-rose-400' : 'text-slate-300'}`}>
+                                                                <span className={`text-sm font-bold ${isOverdue(lim.ultima_manutencao, lim.dias_proxima_manutencao) ? 'text-rose-400' : 'text-slate-300'}`}>
                                                                     {calculateNextMaintenance(lim.ultima_manutencao, lim.dias_proxima_manutencao)}
                                                                 </span>
                                                             </div>
@@ -1429,7 +2275,7 @@ export default function GestaoEquipamentos() {
                                     </section>
 
                                     <section className="space-y-6">
-                                        <label className="text-xs font-black text-blue-400 uppercase tracking-[0.4em] block px-2">Componentes de Hardware</label>
+                                        <label className="text-sm font-black text-blue-400 uppercase tracking-[0.4em] block px-2">Componentes de Hardware</label>
                                         <div className="grid grid-cols-1 gap-4">
                                             <div className="bg-slate-800/50 p-6 rounded-3xl border border-white/5 flex justify-between items-center group">
                                                 <div>
@@ -1449,16 +2295,16 @@ export default function GestaoEquipamentos() {
                                     </section>
 
                                     <section className="space-y-6">
-                                        <label className="text-xs font-black text-blue-400 uppercase tracking-[0.4em] block px-2">Coordenadas Geográficas</label>
+                                        <label className="text-sm font-black text-blue-400 uppercase tracking-[0.4em] block px-2">Coordenadas Geográficas</label>
                                         <div className="bg-white/5 p-8 rounded-[2.5rem] border border-white/10 space-y-6">
                                             <div className="flex justify-between items-center">
                                                 <div className="space-y-1">
-                                                    <span className="text-xs font-black text-slate-500 uppercase tracking-widest">Latitude</span>
+                                                    <span className="text-sm font-black text-slate-500 uppercase tracking-widest">Latitude</span>
                                                     <div className="text-xl font-black">{boiaDetalhe.latitude}</div>
                                                 </div>
                                                 <div className="w-px h-10 bg-white/10"></div>
                                                 <div className="space-y-1">
-                                                    <span className="text-xs font-black text-slate-500 uppercase tracking-widest">Longitude</span>
+                                                    <span className="text-sm font-black text-slate-500 uppercase tracking-widest">Longitude</span>
                                                     <div className="text-xl font-black">{boiaDetalhe.longitude}</div>
                                                 </div>
                                                 <a 
@@ -1468,7 +2314,7 @@ export default function GestaoEquipamentos() {
                                                 >📍</a>
                                             </div>
                                             <div className="pt-6 border-t border-white/5">
-                                                <span className="text-xs font-black text-slate-500 uppercase block mb-2 tracking-widest">Descrição do Local</span>
+                                                <span className="text-sm font-black text-slate-500 uppercase block mb-2 tracking-widest">Descrição do Local</span>
                                                 <p className="font-bold text-slate-300 italic text-sm">"{boiaDetalhe.localizacao_texto || 'Coordenadas Brutas'}"</p>
                                             </div>
                                         </div>
@@ -1479,7 +2325,7 @@ export default function GestaoEquipamentos() {
                         
                         {/* Painel de Rodapé */}
                         <div className="p-10 bg-slate-950 border-t border-white/5 space-y-4">
-                            {!isLeitor && (
+                            {isAdmin && (
                                 <button 
                                     onClick={() => removerBoia(boiaDetalhe.id)}
                                     className="w-full bg-rose-500/10 text-rose-500 font-black py-4 rounded-2xl hover:bg-rose-500 hover:text-white transition-all uppercase text-[10px] tracking-[0.3em] border border-rose-500/20"
@@ -1507,13 +2353,130 @@ export default function GestaoEquipamentos() {
                     from { opacity: 0; transform: translateY(20px); }
                     to { opacity: 1; transform: translateY(0); }
                 }
+                @keyframes glowPulse {
+                    0% { box-shadow: 0 0 5px rgba(244, 63, 94, 0.2); border-color: rgba(244, 63, 94, 0.3); }
+                    50% { box-shadow: 0 0 25px rgba(244, 63, 94, 0.6); border-color: rgba(244, 63, 94, 0.8); }
+                    100% { box-shadow: 0 0 5px rgba(244, 63, 94, 0.2); border-color: rgba(244, 63, 94, 0.3); }
+                }
                 .animate-slide-in {
                     animation: slideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
                 }
                 .animate-fade-in {
                     animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
                 }
+                .urgent-glow {
+                    animation: glowPulse 2s infinite ease-in-out;
+                }
             `}</style>
+
+            {/* MODAL DE RELATÓRIO DE MANUTENÇÃO */}
+            {mostrarModalManutencao && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" onClick={() => setMostrarTourManutencao(false)}></div>
+                    <div className="relative bg-white w-full max-w-xl rounded-[3rem] shadow-2xl overflow-hidden animate-fade-in border border-slate-100">
+                        <div className="bg-slate-900 p-8 text-white flex justify-between items-center">
+                            <div>
+                                <h3 className="text-2xl font-black uppercase tracking-tighter text-blue-400">
+                                    {formManutencao.tipo_sensor_id 
+                                        ? `Calibração: ${tiposSensor.find(t => t.id === Number(formManutencao.tipo_sensor_id))?.nome}` 
+                                        : 'Relatório de Campo'}
+                                </h3>
+                                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Intervenção em {boiaDetalhe?.nome}</p>
+                            </div>
+                            <button onClick={() => setMostrarTourManutencao(false)} className="text-slate-500 hover:text-white transition-colors text-2xl">✕</button>
+                        </div>
+                        
+                        <form onSubmit={handleSubmeterManutencao} className="p-10 space-y-8">
+                            <div className="grid grid-cols-2 gap-6">
+                                <div>
+                                    <label className={labelClass}>Tipo de Trabalho</label>
+                                    <select 
+                                        value={formManutencao.tipo}
+                                        onChange={e => setFormRelatorioManutencao({...formManutencao, tipo: e.target.value})}
+                                        className={inputClass}
+                                    >
+                                        <option value="limpeza">Limpeza Geral</option>
+                                        <option value="calibracao">Calibração</option>
+                                        <option value="reparacao">Reparação Física</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className={labelClass}>Estado após Intervenção</label>
+                                    <select 
+                                        value={formManutencao.estado_geral}
+                                        onChange={e => setFormRelatorioManutencao({...formManutencao, estado_geral: e.target.value})}
+                                        className={inputClass}
+                                    >
+                                        <option value="bom">Totalmente Operacional (Bom)</option>
+                                        <option value="regular">Requer Vigilância (Regular)</option>
+                                        <option value="critico">Necessita Peças (Crítico)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className={labelClass}>Checklist de Verificação</label>
+                                <div className="grid grid-cols-2 gap-4">
+                                    {(() => {
+                                        let items = [];
+                                        if (formManutencao.tipo === 'limpeza') {
+                                            items = [
+                                                { id: 'casco', label: 'Casco Limpo (Algas)' },
+                                                { id: 'sensores', label: 'Sensores Lavados' },
+                                                { id: 'vedacao', label: 'Vedações Estanques' },
+                                                { id: 'antena', label: 'Antena LoRa OK' }
+                                            ];
+                                        } else if (formManutencao.tipo === 'calibracao') {
+                                            items = [
+                                                { id: 'calib', label: formManutencao.tipo_sensor_id ? 'Calibração Efetuada' : 'Calibração Geral' },
+                                                { id: 'valida', label: 'Valores Validados' },
+                                                { id: 'eletrodo', label: 'Elétrodo Limpo' },
+                                                { id: 'bateria', label: 'Energia Verificada' }
+                                            ];
+                                        } else {
+                                            items = [
+                                                { id: 'peca', label: 'Componente Trocado' },
+                                                { id: 'agua', label: 'Teste de Água OK' },
+                                                { id: 'bateria', label: 'Nova Bateria/Carga' },
+                                                { id: 'envio', label: 'Teste de Envio OK' }
+                                            ];
+                                        }
+
+                                        return items.map(item => (
+                                            <label key={item.id} className="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl cursor-pointer hover:bg-blue-50 transition-all border border-slate-100 group/check">
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={formManutencao.checklist[item.id] || false}
+                                                    onChange={e => setFormRelatorioManutencao({
+                                                        ...formManutencao, 
+                                                        checklist: { ...formManutencao.checklist, [item.id]: e.target.checked }
+                                                    })}
+                                                    className="w-6 h-6 rounded-lg border-slate-300 text-blue-600 focus:ring-blue-500 transition-all group-hover/check:scale-110"
+                                                />
+                                                <span className="text-sm font-black text-slate-700 uppercase tracking-tight">{item.label}</span>
+                                            </label>
+                                        ));
+                                    })()}
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className={labelClass}>Observações Técnicas</label>
+                                <textarea 
+                                    value={formManutencao.observacoes}
+                                    onChange={e => setFormRelatorioManutencao({...formManutencao, observacoes: e.target.value})}
+                                    placeholder="Descreva o que encontrou no terreno..."
+                                    className={`${inputClass} h-32 resize-none pt-4`}
+                                />
+                            </div>
+
+                            <button type="submit" className="w-full bg-blue-600 text-white py-6 rounded-2xl font-black uppercase tracking-[0.3em] shadow-xl shadow-blue-200 hover:bg-slate-900 transition-all active:scale-95">
+                                Submeter Relatório 🚀
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

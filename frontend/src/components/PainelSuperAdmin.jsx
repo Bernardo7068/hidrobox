@@ -1,28 +1,70 @@
 import { useState, useEffect } from 'react';
 import api from '../api';
+import Tooltip from './Tooltip';
 
-export default function PainelSuperAdmin({ onAbaChange }) {
+export default function PainelSuperAdmin({ onAbaChange, isHelpMode }) {
     const userLogado = JSON.parse(localStorage.getItem('user') || '{}');
     const [empresas, setEmpresas] = useState([]);
     const [usuarios, setUsuarios] = useState([]);
-    const [novaEmpresa, setNovaEmpresa] = useState({ nome: '', nif: '' });
+    const [tiposSensor, setTiposSensor] = useState([]);
+    const [novaEmpresa, setNovaEmpresa] = useState({ nome: '', nif: '', email_contacto: '', telefone: '', morada: '' });
+    const [novoTipoSensor, setNovoTipoSensor] = useState({ nome: '', unidade: '' });
     const [editandoEmpresa, setEditandoEmpresa] = useState(null);
     const [editandoUser, setEditandoUser] = useState(null);
+    const [editandoTipoSensor, setEditandoTipoSensor] = useState(null);
     const [mensagem, setMensagem] = useState('');
-    const [abaAtiva, setAbaAtiva] = useState('empresas'); // 'empresas' ou 'usuarios'
-    const [empresaSelecionada, setEmpresaSelecionada] = useState(null);
+    const [abaAtiva, setAbaAtiva] = useState('entidades'); // 'entidades', 'utilizadores' ou 'sensores'
+    const [entidadeSelecionada, setEntidadeSelecionada] = useState(null);
+    const [novoUtilizador, setNovoUtilizador] = useState({ name: '', email: '', password: '', role: 'leitor_empresa', empresa_id: '' });
 
     useEffect(() => { carregarDados(); }, []);
 
     const carregarDados = async () => {
         try {
-            const [resEmp, resUsers] = await Promise.all([
+            const [resEnt, resUsers, resTipos] = await Promise.all([
                 api.get('/empresas'),
-                api.get('/users')
+                api.get('/users'),
+                api.get('/tipos-sensor')
             ]);
-            setEmpresas(resEmp.data);
+            setEmpresas(resEnt.data);
             setUsuarios(resUsers.data);
+            setTiposSensor(resTipos.data);
         } catch (err) { console.error(err); }
+    };
+
+    const handleCriarTipoSensor = async (e) => {
+        e.preventDefault();
+        try {
+            await api.post('/tipos-sensor', novoTipoSensor);
+            setMensagem('Tipo de sensor criado!');
+            setNovoTipoSensor({ nome: '', unidade: '' });
+            carregarDados();
+        } catch (err) { setMensagem('Erro ao criar sensor.'); }
+    };
+
+    const handleUpdateTipoSensor = async (e) => {
+        e.preventDefault();
+        try {
+            await api.put(`/tipos-sensor/${editandoTipoSensor.id}`, editandoTipoSensor);
+            setEditandoTipoSensor(null);
+            setMensagem('Sensor atualizado!');
+            carregarDados();
+        } catch (err) { setMensagem('Erro ao atualizar.'); }
+    };
+
+    const handleDeleteTipoSensor = async (id) => {
+        if (!window.confirm('Eliminar este tipo de sensor?')) return;
+        try {
+            const res = await api.delete(`/tipos-sensor/${id}`);
+            if (res.data.sucesso) {
+                setMensagem('Sensor removido.');
+                carregarDados();
+            } else {
+                setMensagem(res.data.mensagem);
+            }
+        } catch (err) { 
+            setMensagem(err.response?.data?.mensagem || 'Erro ao eliminar.'); 
+        }
     };
 
     const handleCriarEmpresa = async (e) => {
@@ -223,22 +265,31 @@ export default function PainelSuperAdmin({ onAbaChange }) {
                         <span className="text-xs font-black uppercase tracking-[0.3em] text-indigo-600">Enterprise Control</span>
                     </div>
                     <h1 className="text-4xl md:text-5xl font-black text-slate-900 tracking-tight leading-none">
-                        Gestão <span className="bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-blue-500">Multicliente</span>
+                        Gestão de <span className="bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-blue-500">Clientes</span>
                     </h1>
                 </div>
 
                 <div className="flex items-center gap-4 bg-white p-2 rounded-[2rem] shadow-sm border border-slate-100">
                     <button 
-                        onClick={() => { setAbaAtiva('empresas'); setEmpresaSelecionada(null); }}
-                        className={`px-8 py-3 rounded-[1.5rem] text-sm font-black uppercase tracking-widest transition-all ${abaAtiva === 'empresas' ? 'bg-slate-900 text-white shadow-xl shadow-slate-200' : 'text-slate-400 hover:text-slate-600'}`}
+                        id="btn-aba-entidades"
+                        onClick={() => { setAbaAtiva('entidades'); setEntidadeSelecionada(null); }}
+                        className={`px-8 py-3 rounded-[1.5rem] text-sm font-black uppercase tracking-widest transition-all ${abaAtiva === 'entidades' ? 'bg-slate-900 text-white shadow-xl shadow-slate-200' : 'text-slate-400 hover:text-slate-600'}`}
                     >
-                        Empresas
+                        Entidades
                     </button>
                     <button 
-                        onClick={() => { setAbaAtiva('usuarios'); setEmpresaSelecionada(null); }}
-                        className={`px-8 py-3 rounded-[1.5rem] text-sm font-black uppercase tracking-widest transition-all ${abaAtiva === 'usuarios' ? 'bg-slate-900 text-white shadow-xl shadow-slate-200' : 'text-slate-400 hover:text-slate-600'}`}
+                        id="btn-aba-utilizadores"
+                        onClick={() => { setAbaAtiva('utilizadores'); setEntidadeSelecionada(null); }}
+                        className={`px-8 py-3 rounded-[1.5rem] text-sm font-black uppercase tracking-widest transition-all ${abaAtiva === 'utilizadores' ? 'bg-slate-900 text-white shadow-xl shadow-slate-200' : 'text-slate-400 hover:text-slate-600'}`}
                     >
                         Utilizadores
+                    </button>
+                    <button 
+                        id="btn-aba-metricas"
+                        onClick={() => { setAbaAtiva('sensores'); setEntidadeSelecionada(null); }}
+                        className={`px-8 py-3 rounded-[1.5rem] text-sm font-black uppercase tracking-widest transition-all ${abaAtiva === 'sensores' ? 'bg-slate-900 text-white shadow-xl shadow-slate-200' : 'text-slate-400 hover:text-slate-600'}`}
+                    >
+                        Métricas
                     </button>
                 </div>
             </div>
@@ -257,21 +308,26 @@ export default function PainelSuperAdmin({ onAbaChange }) {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 px-4">
                 
                 {/* Lado Esquerdo: Listagens */}
-                <div className="lg:col-span-8 space-y-10">
-                    {abaAtiva === 'empresas' ? (
-                        empresaSelecionada ? (
+                <div className="lg:col-span-8 space-y-10 relative">
+                    {isHelpMode && (
+                        <div className="absolute -top-16 left-0 bg-amber-400 text-amber-950 text-sm font-black p-5 rounded-2xl shadow-xl w-80 z-50 animate-bounce-in border-4 border-white">
+                            🏢 <strong>Gestão de Clientes:</strong> Aqui controlas toda a base de clientes do HidroBox. Podes adicionar novas organizações, gerir os seus recursos ou removê-las completamente do sistema.
+                        </div>
+                    )}
+                    {abaAtiva === 'entidades' ? (
+                        entidadeSelecionada ? (
                             <ExploradorTecnico 
-                                empresa={empresaSelecionada}
+                                empresa={entidadeSelecionada}
                                 usuarios={usuarios}
-                                onVoltar={() => setEmpresaSelecionada(null)}
+                                onVoltar={() => setEntidadeSelecionada(null)}
                                 onRemover={(userId) => handleMoveUser(userId, null)}
                                 onAlterarRole={handleAlterarRole}
                             />
                         ) : (
                             <section className="space-y-6">
                                 <div className="flex items-center justify-between px-2">
-                                    <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Portfólio de Ativos</h2>
-                                    <span className="px-4 py-1.5 bg-slate-100 rounded-full text-xs font-black text-slate-500 uppercase">{empresas.length} Entidades</span>
+                                    <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Lista de Entidades</h2>
+                                    <span className="px-4 py-1.5 bg-slate-100 rounded-full text-xs font-black text-slate-500 uppercase">{empresas.length} Organizações</span>
                                 </div>
 
                                 <div className="grid gap-6">
@@ -305,29 +361,35 @@ export default function PainelSuperAdmin({ onAbaChange }) {
 
                                                 <div className="flex flex-col justify-between items-end gap-4">
                                                     <div className="flex gap-2">
-                                                        <button 
-                                                            onClick={() => setEditandoEmpresa(emp)}
-                                                            className="p-3 bg-slate-50 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 rounded-2xl transition-all border border-slate-100"
-                                                        >
-                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                                            </svg>
-                                                        </button>
-                                                        <button 
-                                                            onClick={() => handleDeleteEmpresa(emp.id)}
-                                                            className="p-3 bg-slate-50 text-slate-400 hover:bg-rose-50 hover:text-rose-600 rounded-2xl transition-all border border-slate-100"
-                                                        >
-                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                            </svg>
-                                                        </button>
+                                                        <Tooltip text="Editar informações da entidade" position="left">
+                                                            <button 
+                                                                onClick={() => setEditandoEmpresa(emp)}
+                                                                className="p-3 bg-slate-50 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 rounded-2xl transition-all border border-slate-100"
+                                                            >
+                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                                                </svg>
+                                                            </button>
+                                                        </Tooltip>
+                                                        <Tooltip text="Eliminar organização permanentemente" position="left">
+                                                            <button 
+                                                                onClick={() => handleDeleteEmpresa(emp.id)}
+                                                                className="p-3 bg-slate-50 text-slate-400 hover:bg-rose-50 hover:text-rose-600 rounded-2xl transition-all border border-slate-100"
+                                                            >
+                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                                </svg>
+                                                            </button>
+                                                        </Tooltip>
                                                     </div>
-                                                    <button 
-                                                    onClick={() => setEmpresaSelecionada(emp)}
-                                                    className="text-xs font-black text-indigo-600 bg-indigo-50 px-6 py-2.5 rounded-xl hover:bg-indigo-600 hover:text-white transition-all uppercase tracking-widest"
-                                                    >
-                                                        Gerir Recursos
-                                                    </button>
+                                                    <Tooltip text="Gerir equipa e equipamentos desta entidade" position="left">
+                                                        <button 
+                                                        onClick={() => setEntidadeSelecionada(emp)}
+                                                        className="text-xs font-black text-indigo-600 bg-indigo-50 px-6 py-2.5 rounded-xl hover:bg-indigo-600 hover:text-white transition-all uppercase tracking-widest"
+                                                        >
+                                                            Gerir Recursos
+                                                        </button>
+                                                    </Tooltip>
                                                 </div>
                                             </div>
                                         </div>
@@ -335,75 +397,69 @@ export default function PainelSuperAdmin({ onAbaChange }) {
                                 </div>
                             </section>
                         )
-                    ) : (
-                        <section className="space-y-6">
+                    ) : abaAtiva === 'sensores' ? (
+                        <section className="space-y-6 relative">
+                            {isHelpMode && (
+                                <div className="absolute -top-16 right-0 bg-amber-400 text-amber-950 text-sm font-black p-5 rounded-2xl shadow-xl w-80 z-50 animate-bounce-in border-4 border-white">
+                                    🧪 <strong>Catálogo de Sensores:</strong> Adiciona aqui novas métricas (ex: Salinidade, Turbidez). Elas ficarão imediatamente disponíveis em todo o sistema.
+                                </div>
+                            )}
                             <div className="flex items-center justify-between px-2">
-                                <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Utilizadores do Sistema</h2>
-                                <span className="px-4 py-1.5 bg-slate-100 rounded-full text-xs font-black text-slate-500 uppercase">{usuarios.length} Registos</span>
+                                <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Catálogo de Sensores</h2>
+                                <span className="px-4 py-1.5 bg-slate-100 rounded-full text-xs font-black text-slate-500 uppercase">{tiposSensor.length} Tipos</span>
                             </div>
 
                             <div className="bg-white rounded-[2.5rem] border border-slate-100 overflow-hidden shadow-sm">
                                 <table className="w-full text-left border-collapse">
                                     <thead>
                                         <tr className="bg-slate-50/50">
-                                            <th className="px-8 py-5 text-xs font-black text-slate-400 uppercase tracking-widest">Utilizador</th>
-                                            <th className="px-8 py-5 text-xs font-black text-slate-400 uppercase tracking-widest">Cargo</th>
-                                            <th className="px-8 py-5 text-xs font-black text-slate-400 uppercase tracking-widest">Empresa</th>
+                                            <th className="px-8 py-5 text-xs font-black text-slate-400 uppercase tracking-widest">Nome do Sensor</th>
+                                            <th className="px-8 py-5 text-xs font-black text-slate-400 uppercase tracking-widest">Unidade</th>
                                             <th className="px-8 py-5 text-xs font-black text-slate-400 uppercase tracking-widest text-right">Ações</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-50">
-                                        {usuarios.map(u => (
-                                            <tr key={u.id} className="hover:bg-slate-50/30 transition-colors group">
+                                        {tiposSensor.map(s => (
+                                            <tr key={s.id} className="hover:bg-slate-50/30 transition-colors group">
                                                 <td className="px-8 py-6">
                                                     <div className="flex items-center gap-4">
-                                                        <div className="h-10 w-10 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600 font-black text-sm">
-                                                            {u.name.charAt(0).toUpperCase()}
-                                                        </div>
-                                                        <div>
-                                                            <p className="text-base font-black text-slate-900 leading-none mb-1">{u.name}</p>
-                                                            <p className="text-xs font-bold text-slate-400">{u.email}</p>
-                                                        </div>
+                                                        <Tooltip text={`Tipo de medição: ${s.nome}`}>
+                                                            <div className="h-10 w-10 bg-blue-100 rounded-xl flex items-center justify-center text-blue-600 font-black text-lg cursor-help">
+                                                                {s.nome.includes('Oxig') ? '🫧' : s.nome.includes('pH') ? '⚗️' : '🌡️'}
+                                                            </div>
+                                                        </Tooltip>
+                                                        <p className="text-base font-black text-slate-900 leading-none">{s.nome}</p>
                                                     </div>
                                                 </td>
                                                 <td className="px-8 py-6">
-                                                    <span className={`px-3 py-1 rounded-lg text-xs font-black uppercase tracking-widest ${
-                                                        u.role === 'super_admin' ? 'bg-slate-900 text-white' : 
-                                                        u.role === 'admin_empresa' ? 'bg-indigo-100 text-indigo-600' : 'bg-blue-100 text-blue-600'
-                                                    }`}>
-                                                        {u.role.replace('_', ' ')}
-                                                    </span>
-                                                </td>
-                                                <td className="px-8 py-6">
-                                                    <select 
-                                                        value={u.empresa_id || ''}
-                                                        onChange={(e) => handleMoveUser(u.id, e.target.value)}
-                                                        className="bg-transparent border-none text-xs font-black text-slate-500 focus:ring-0 cursor-pointer p-0 uppercase tracking-tight"
-                                                    >
-                                                        <option value="">Sem Empresa</option>
-                                                        {empresas.map(e => (
-                                                            <option key={e.id} value={e.id}>{e.nome}</option>
-                                                        ))}
-                                                    </select>
+                                                    <Tooltip text="Unidade de medida padrão">
+                                                        <span className="px-3 py-1 bg-slate-100 rounded-lg text-xs font-black text-slate-600 uppercase cursor-help">
+                                                            {s.unidade}
+                                                        </span>
+                                                    </Tooltip>
                                                 </td>
                                                 <td className="px-8 py-6 text-right">
                                                     <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                        <button 
-                                                            onClick={() => setEditandoUser(u)}
-                                                            className="p-2 text-slate-400 hover:text-indigo-600 transition-colors"
-                                                        >
-                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                                                            </svg>
-                                                        </button>
-                                                        <button 
-                                                            onClick={() => handleDeleteUser(u.id)}
-                                                            className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
-                                                        >
-                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                            </svg>
-                                                        </button>
+                                                        <Tooltip text="Editar definição da métrica" position="left">
+                                                            <button 
+                                                                onClick={() => setEditandoTipoSensor(s)}
+                                                                className="p-2 text-slate-400 hover:text-blue-600 transition-colors"
+                                                            >
+                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                                                </svg>
+                                                            </button>
+                                                        </Tooltip>
+                                                        <Tooltip text="Remover métrica do sistema" position="left">
+                                                            <button 
+                                                                onClick={() => handleDeleteTipoSensor(s.id)}
+                                                                className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
+                                                            >
+                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                                </svg>
+                                                            </button>
+                                                        </Tooltip>
                                                     </div>
                                                 </td>
                                             </tr>
@@ -412,7 +468,93 @@ export default function PainelSuperAdmin({ onAbaChange }) {
                                 </table>
                             </div>
                         </section>
-                    )}
+                    ) : abaAtiva === 'utilizadores' && !editandoUser ? (
+                        <section className="space-y-6 relative">
+                            {isHelpMode && (
+                                <div className="absolute -top-16 right-0 bg-amber-400 text-amber-950 text-sm font-black p-5 rounded-2xl shadow-xl w-80 z-50 animate-bounce-in border-4 border-white">
+                                    👥 <strong>Utilizadores:</strong> Gere quem tem acesso ao sistema. Podes criar novos acessos ou alterar as permissões e empresas de cada um.
+                                </div>
+                            )}
+                            <div className="flex items-center justify-between px-2">
+                                <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Utilizadores Ativos</h2>
+                                <span className="px-4 py-1.5 bg-slate-100 rounded-full text-xs font-black text-slate-500 uppercase">{usuarios.length} Contas</span>
+                            </div>
+
+                            <div className="bg-white rounded-[2.5rem] border border-slate-100 overflow-hidden shadow-sm">
+                                <table className="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-slate-50/50">
+                                            <th className="px-8 py-5 text-xs font-black text-slate-400 uppercase tracking-widest">Utilizador</th>
+                                            <th className="px-8 py-5 text-xs font-black text-slate-400 uppercase tracking-widest">Nível de Acesso</th>
+                                            <th className="px-8 py-5 text-xs font-black text-slate-400 uppercase tracking-widest text-right">Ações</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-50">
+                                        {usuarios.map(u => (
+                                            <tr key={u.id} className="hover:bg-slate-50/30 transition-colors group">
+                                                <td className="px-8 py-6">
+                                                    <div className="flex items-center gap-4">
+                                                        <Tooltip text={`Iniciais de ${u.name}`}>
+                                                            <div className="h-10 w-10 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600 font-black text-lg cursor-help">
+                                                                {u.name.charAt(0).toUpperCase()}
+                                                            </div>
+                                                        </Tooltip>
+                                                        <div>
+                                                            <p className="text-base font-black text-slate-900 leading-none mb-1">{u.name}</p>
+                                                            <p className="text-xs font-bold text-slate-400">{u.email}</p>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="px-8 py-6">
+                                                    <Tooltip text="Função atribuída no sistema" position="right">
+                                                        <span className={`px-3 py-1 rounded-lg text-xs font-black uppercase cursor-help ${
+                                                            u.role === 'super_admin' ? 'bg-rose-100 text-rose-600' :
+                                                            u.role === 'admin_empresa' ? 'bg-indigo-100 text-indigo-600' :
+                                                            u.role === 'tecnico_empresa' ? 'bg-blue-100 text-blue-600' :
+                                                            'bg-slate-100 text-slate-600'
+                                                        }`}>
+                                                            {u.role.replace('_empresa', '').replace('_', ' ')}
+                                                        </span>
+                                                    </Tooltip>
+                                                    {u.empresa_id && (
+                                                        <Tooltip text="Organização à qual este utilizador pertence" position="right">
+                                                            <p className="text-[10px] font-bold text-slate-400 mt-2 cursor-help">
+                                                                {empresas.find(e => e.id === u.empresa_id)?.nome || 'Sem Empresa'}
+                                                            </p>
+                                                        </Tooltip>
+                                                    )}
+                                                </td>
+                                                <td className="px-8 py-6 text-right">
+                                                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <Tooltip text="Editar perfil e acessos" position="left">
+                                                            <button 
+                                                                onClick={() => setEditandoUser(u)}
+                                                                className="p-2 text-slate-400 hover:text-indigo-600 transition-colors"
+                                                            >
+                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                                                </svg>
+                                                            </button>
+                                                        </Tooltip>
+                                                        <Tooltip text="Eliminar conta permanentemente" position="left">
+                                                            <button 
+                                                                onClick={() => handleDeleteUser(u.id)}
+                                                                className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
+                                                            >
+                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                                </svg>
+                                                            </button>
+                                                        </Tooltip>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </section>
+                    ) : null}
                 </div>
 
                 {/* Lado Direito: Formulários contextuais */}
@@ -443,6 +585,30 @@ export default function PainelSuperAdmin({ onAbaChange }) {
                                     <input 
                                         type="text" required value={editandoEmpresa.nif}
                                         onChange={e => setEditandoEmpresa({...editandoEmpresa, nif: e.target.value})}
+                                        className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-4 focus:ring-indigo-500/5 focus:border-indigo-500 font-bold text-sm transition-all"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Email de Contacto</label>
+                                    <input 
+                                        type="email" value={editandoEmpresa.email_contacto || ''}
+                                        onChange={e => setEditandoEmpresa({...editandoEmpresa, email_contacto: e.target.value})}
+                                        className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-4 focus:ring-indigo-500/5 focus:border-indigo-500 font-bold text-sm transition-all"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Telefone / Emergência</label>
+                                    <input 
+                                        type="text" value={editandoEmpresa.telefone || ''}
+                                        onChange={e => setEditandoEmpresa({...editandoEmpresa, telefone: e.target.value})}
+                                        className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-4 focus:ring-indigo-500/5 focus:border-indigo-500 font-bold text-sm transition-all"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Morada Sede</label>
+                                    <input 
+                                        type="text" value={editandoEmpresa.morada || ''}
+                                        onChange={e => setEditandoEmpresa({...editandoEmpresa, morada: e.target.value})}
                                         className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-4 focus:ring-indigo-500/5 focus:border-indigo-500 font-bold text-sm transition-all"
                                     />
                                 </div>
@@ -496,6 +662,128 @@ export default function PainelSuperAdmin({ onAbaChange }) {
                                 </button>
                             </form>
                         </div>
+                    ) : editandoTipoSensor ? (
+                        <div className="bg-white p-10 rounded-[2.5rem] shadow-xl border-2 border-blue-500 shadow-blue-100 animate-in slide-in-from-right duration-500">
+                            <div className="flex justify-between items-center mb-8">
+                                <h3 className="text-2xl font-black uppercase tracking-tight text-slate-900">Editar Sensor</h3>
+                                <button onClick={() => setEditandoTipoSensor(null)} className="text-slate-300 hover:text-slate-900">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+                            <form onSubmit={handleUpdateTipoSensor} className="space-y-6">
+                                <div>
+                                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Nome do Sensor</label>
+                                    <input 
+                                        type="text" required value={editandoTipoSensor.nome}
+                                        onChange={e => setEditandoTipoSensor({...editandoTipoSensor, nome: e.target.value})}
+                                        className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500 font-bold text-sm transition-all"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Unidade (ex: °C, pH, mg/L)</label>
+                                    <input 
+                                        type="text" required value={editandoTipoSensor.unidade}
+                                        onChange={e => setEditandoTipoSensor({...editandoTipoSensor, unidade: e.target.value})}
+                                        className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500 font-bold text-sm transition-all"
+                                    />
+                                </div>
+                                <button type="submit" className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black uppercase tracking-widest text-sm shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all">
+                                    Atualizar Definições
+                                </button>
+                            </form>
+                        </div>
+                    ) : abaAtiva === 'sensores' ? (
+                        <div className="bg-slate-900 p-10 rounded-[2.5rem] text-white shadow-2xl shadow-blue-200 relative overflow-hidden">
+                            <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/20 rounded-full blur-[50px] -mr-16 -mt-16"></div>
+                            
+                            <div className="relative z-10">
+                                <h3 className="text-3xl font-black uppercase tracking-tight leading-none mb-2">Novo <span className="text-blue-400">Sensor</span></h3>
+                                <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mb-8">Definição de Métrica Global</p>
+                                
+                                <form onSubmit={handleCriarTipoSensor} className="space-y-6">
+                                    <div className="space-y-4">
+                                        <input 
+                                            type="text" required value={novoTipoSensor.nome}
+                                            onChange={e => setNovoTipoSensor({...novoTipoSensor, nome: e.target.value})}
+                                            className="w-full p-5 bg-white/5 border border-white/10 rounded-2xl outline-none focus:bg-white/10 focus:border-blue-500 transition-all font-bold text-base placeholder:text-slate-600"
+                                            placeholder="Nome (ex: Turbidez)"
+                                        />
+                                        <input 
+                                            type="text" required value={novoTipoSensor.unidade}
+                                            onChange={e => setNovoTipoSensor({...novoTipoSensor, unidade: e.target.value})}
+                                            className="w-full p-5 bg-white/5 border border-white/10 rounded-2xl outline-none focus:bg-white/10 focus:border-blue-500 transition-all font-bold text-base placeholder:text-slate-600"
+                                            placeholder="Unidade (ex: NTU)"
+                                        />
+                                    </div>
+                                    <button type="submit" className="w-full bg-blue-600 py-6 rounded-2xl font-black uppercase tracking-[0.2em] text-xs hover:bg-white hover:text-slate-900 transition-all shadow-xl shadow-blue-900/40">
+                                        Registar Métrica
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    ) : abaAtiva === 'usuarios' && !editandoUser ? (
+                        <div className="bg-slate-900 p-10 rounded-[2.5rem] text-white shadow-2xl shadow-slate-200 relative overflow-hidden">
+                            <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-600/20 rounded-full blur-[50px] -mr-16 -mt-16"></div>
+                            
+                            <div className="relative z-10">
+                                <h3 className="text-3xl font-black uppercase tracking-tight leading-none mb-2">Novo <span className="text-indigo-400">Utilizador</span></h3>
+                                <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mb-8">Criar Conta de Acesso</p>
+                                
+                                <form onSubmit={async (e) => {
+                                    e.preventDefault();
+                                    try {
+                                        await api.post('/users', novoUtilizador);
+                                        setMensagem('Utilizador criado com sucesso!');
+                                        setNovoUtilizador({ name: '', email: '', password: '', role: 'leitor_empresa', empresa_id: '' });
+                                        carregarDados();
+                                    } catch (err) { setMensagem('Erro ao criar utilizador.'); }
+                                }} className="space-y-4">
+                                    <input 
+                                        type="text" required value={novoUtilizador.name}
+                                        onChange={e => setNovoUtilizador({...novoUtilizador, name: e.target.value})}
+                                        className="w-full p-4 bg-white/5 border border-white/10 rounded-2xl outline-none focus:bg-white/10 focus:border-indigo-500 transition-all font-bold text-sm placeholder:text-slate-500"
+                                        placeholder="Nome Completo"
+                                    />
+                                    <input 
+                                        type="email" required value={novoUtilizador.email}
+                                        onChange={e => setNovoUtilizador({...novoUtilizador, email: e.target.value})}
+                                        className="w-full p-4 bg-white/5 border border-white/10 rounded-2xl outline-none focus:bg-white/10 focus:border-indigo-500 transition-all font-bold text-sm placeholder:text-slate-500"
+                                        placeholder="E-mail de Acesso"
+                                    />
+                                    <input 
+                                        type="password" required value={novoUtilizador.password}
+                                        onChange={e => setNovoUtilizador({...novoUtilizador, password: e.target.value})}
+                                        className="w-full p-4 bg-white/5 border border-white/10 rounded-2xl outline-none focus:bg-white/10 focus:border-indigo-500 transition-all font-bold text-sm placeholder:text-slate-500"
+                                        placeholder="Palavra-passe"
+                                    />
+                                    <select 
+                                        value={novoUtilizador.role}
+                                        onChange={e => setNovoUtilizador({...novoUtilizador, role: e.target.value})}
+                                        className="w-full p-4 bg-white/5 border border-white/10 rounded-2xl outline-none focus:bg-white/10 focus:border-indigo-500 transition-all font-black text-xs uppercase tracking-widest text-white cursor-pointer [&>option]:bg-slate-900"
+                                    >
+                                        <option value="super_admin">SUPER ADMIN</option>
+                                        <option value="admin_empresa">ADMIN EMPRESA</option>
+                                        <option value="tecnico_empresa">TÉCNICO</option>
+                                        <option value="leitor_empresa">LEITOR</option>
+                                    </select>
+                                    <select 
+                                        value={novoUtilizador.empresa_id}
+                                        onChange={e => setNovoUtilizador({...novoUtilizador, empresa_id: e.target.value})}
+                                        className="w-full p-4 bg-white/5 border border-white/10 rounded-2xl outline-none focus:bg-white/10 focus:border-indigo-500 transition-all font-black text-xs uppercase tracking-widest text-slate-300 cursor-pointer [&>option]:bg-slate-900"
+                                    >
+                                        <option value="">Sem Empresa Vinculada</option>
+                                        {empresas.map(emp => (
+                                            <option key={emp.id} value={emp.id}>{emp.nome}</option>
+                                        ))}
+                                    </select>
+                                    <button type="submit" className="w-full bg-indigo-600 mt-4 py-5 rounded-2xl font-black uppercase tracking-[0.2em] text-xs hover:bg-white hover:text-slate-900 transition-all shadow-xl shadow-indigo-900/40">
+                                        Criar Conta
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
                     ) : (
                         <div className="bg-slate-900 p-10 rounded-[2.5rem] text-white shadow-2xl shadow-slate-200 relative overflow-hidden">
                             <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-600/20 rounded-full blur-[50px] -mr-16 -mt-16"></div>
@@ -518,6 +806,24 @@ export default function PainelSuperAdmin({ onAbaChange }) {
                                             className="w-full p-5 bg-white/5 border border-white/10 rounded-2xl outline-none focus:bg-white/10 focus:border-indigo-500 transition-all font-bold text-base placeholder:text-slate-600"
                                             placeholder="NIF / Identificação"
                                         />
+                                        <input 
+                                            type="email" value={novaEmpresa.email_contacto}
+                                            onChange={e => setNovaEmpresa({...novaEmpresa, email_contacto: e.target.value})}
+                                            className="w-full p-5 bg-white/5 border border-white/10 rounded-2xl outline-none focus:bg-white/10 focus:border-indigo-500 transition-all font-bold text-base placeholder:text-slate-600"
+                                            placeholder="Email de Contacto"
+                                        />
+                                        <input 
+                                            type="text" value={novaEmpresa.telefone}
+                                            onChange={e => setNovaEmpresa({...novaEmpresa, telefone: e.target.value})}
+                                            className="w-full p-5 bg-white/5 border border-white/10 rounded-2xl outline-none focus:bg-white/10 focus:border-indigo-500 transition-all font-bold text-base placeholder:text-slate-600"
+                                            placeholder="Telefone / Emergência"
+                                        />
+                                        <input 
+                                            type="text" value={novaEmpresa.morada}
+                                            onChange={e => setNovaEmpresa({...novaEmpresa, morada: e.target.value})}
+                                            className="w-full p-5 bg-white/5 border border-white/10 rounded-2xl outline-none focus:bg-white/10 focus:border-indigo-500 transition-all font-bold text-base placeholder:text-slate-600"
+                                            placeholder="Morada (Sede)"
+                                        />
                                     </div>
                                     <button type="submit" className="w-full bg-indigo-600 py-6 rounded-2xl font-black uppercase tracking-[0.2em] text-xs hover:bg-white hover:text-slate-900 transition-all shadow-xl shadow-indigo-900/40">
                                         Inicializar Entidade
@@ -530,14 +836,18 @@ export default function PainelSuperAdmin({ onAbaChange }) {
                     {/* Quick Stats Widget */}
                     <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
                         <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-6 px-2">Resumo Global</p>
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-3 gap-4">
                             <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 text-center">
                                 <p className="text-3xl font-black text-slate-900">{empresas.length}</p>
-                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Empresas</p>
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Entidades</p>
                             </div>
                             <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 text-center">
                                 <p className="text-3xl font-black text-slate-900">{usuarios.length}</p>
-                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Users</p>
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Utilizadores</p>
+                            </div>
+                            <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 text-center">
+                                <p className="text-3xl font-black text-slate-900">{tiposSensor.length}</p>
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Métricas</p>
                             </div>
                         </div>
                     </div>

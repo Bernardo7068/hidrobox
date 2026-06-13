@@ -59,6 +59,40 @@ export default function ResumoSensores({ boias }) {
               </div>
 
               <div className="p-8">
+                {/* Diagnóstico de Sinal (NOVO) */}
+                <div className="mb-6 p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xl">📡</span>
+                    <div>
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Qualidade do Sinal LoRa</span>
+                      <span className={`text-sm font-black ${
+                        !boia.rssi_ultimo ? 'text-slate-400' :
+                        boia.rssi_ultimo > -90 ? 'text-emerald-500' :
+                        boia.rssi_ultimo > -115 ? 'text-amber-500' : 'text-rose-500'
+                      }`}>
+                        {boia.rssi_ultimo ? `${boia.rssi_ultimo} dBm` : 'Sem sinal'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex gap-1 items-end h-4">
+                    {[1, 2, 3, 4, 5].map((bar) => {
+                      const strength = boia.rssi_ultimo ? (boia.rssi_ultimo + 140) / 110 : 0; // Normaliza -140 a -30 para 0 a 1
+                      const isActive = strength > (bar / 5);
+                      return (
+                        <div 
+                          key={bar} 
+                          className={`w-1.5 rounded-full transition-all ${
+                            isActive 
+                              ? (strength > 0.7 ? 'bg-emerald-500' : strength > 0.4 ? 'bg-amber-500' : 'bg-rose-500') 
+                              : 'bg-slate-200'
+                          }`}
+                          style={{ height: `${bar * 20}%` }}
+                        ></div>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 {leituras.length === 0 ? (
                   <div className="text-center py-8">
                     <p className="text-slate-400 text-sm font-medium italic">Sem leituras recentes para esta estação.</p>

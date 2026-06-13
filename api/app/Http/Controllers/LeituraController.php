@@ -17,44 +17,111 @@ class LeituraController extends Controller
 {
     public function store(LeituraRequest $request): JsonResponse
     {
-        // Como usamos o LeituraRequest, os dados chegam aqui 100% validados e seguros
+        // Como usamos o LeituraRequest, os dados chegam aqui 100% validados
         $validated = $request->validated();
+        
+        // Resolve o ID interno da boia pelo MAC Address
+        $boia = Boia::where('mac_boia', $validated['mac'])->first();
+
+        // --- LÓGICA DE AUTO-DISCOVERY GATEWAY ---
+        if ($request->has('gateway')) {
+            $gatewayExistente = DB::table('gateways')->where('mac_gateway', $request->gateway)->exists();
+            if (!$gatewayExistente) {
+                // Se o gateway não existe, criamos um registo "pendente" na infraestrutura
+                DB::table('gateways')->insertOrIgnore([
+                    'mac_gateway' => $request->gateway,
+                    'nome' => 'Gateway Descoberto (' . substr($request->gateway, -5) . ')',
+                    'estado' => 'pendente', // Estado especial para o Frontend
+                    'raio_cobertura' => 1000,
+                    'created_at' => now(),
+                    'updated_at' => now()
+                ]);
+                Log::info("Novo Gateway detetado via telemetria: {$request->gateway}");
+            }
+        }
+
+        // --- LÓGICA DE AUTO-DISCOVERY BOIA ---
+        if (!$boia) {
+            // Se a boia não existe, criamos um registo temporário "pendente"
+            // Nota: zona_id é obrigatório na BD, vamos precisar de uma zona "Default" ou tornar opcional
+            // Por agora, vamos criar com uma zona_id 1 (ou a primeira que encontrar)
+            $zonaDefault = DB::table('zonas')->first();
+            
+            $boia = Boia::create([
+                'mac_boia' => $validated['mac'],
+                'mac_gateway' => $validated['gateway'] ?? null,
+                'nome' => 'Nova Boia Detetada (' . substr($validated['mac'], -5) . ')',
+                'estado' => 'pendente', // Estado especial para o Frontend mostrar o aviso
+                'zona_id' => $zonaDefault ? $zonaDefault->id : 1, 
+                'bateria' => $validated['bateria_pct'] ?? 100
+            ]);
+
+            return response()->json([
+                'sucesso' => true,
+                'mensagem' => 'Nova boia detetada e registada como pendente.',
+                'estado' => 'pendente'
+            ], Response::HTTP_CREATED);
+        }
+
+        // Se a boia já existe mas está "pendente", apenas atualizamos os dados sem processar leituras (opcional)
+        // Ou se quisermos ver os valores mesmo em pendente, continuamos:
+        
+        $boia_id = $boia->id;
         $alertasGerados = 0;
 
-        // Usamos uma Base de Dados Transaction. Se a gravação de algum sensor falhar, 
-        // o Laravel faz "rollback" e não deixa a base de dados corrompida ou incompleta.
         DB::beginTransaction();
 
         try {
             $agora = now();
 
+            // Atualiza o gateway e a bateria da boia se enviados
+            $updateData = [];
+            if ($request->has('gateway')) {
+                $updateData['mac_gateway'] = $request->gateway;
+                
+                // Tentar encontrar o gateway na nova tabela de infraestrutura
+                $gatewayId = DB::table('gateways')->where('mac_gateway', $request->gateway)->value('id');
+                if ($gatewayId) {
+                    $updateData['gateway_id'] = $gatewayId;
+                }
+            }
+            if ($request->has('bateria_pct')) {
+                $updateData['bateria'] = $request->bateria_pct;
+            }
+            if ($request->has('rssi')) {
+                $updateData['rssi_ultimo'] = $request->rssi;
+            }
+
+            if (!empty($updateData)) {
+                $boia->update($updateData);
+            }
+
             foreach ($validated['leituras'] as $item) {
                 // 1. Verificação de Integridade de Hardware
-                // O sensorId enviado pelo ESP32 tem de existir na tabela mestre 'tipos_sensor'
-                // para podermos associar limites e ícones na UI.
                 $sensorMestre = DB::table('tipos_sensor')->where('id', $item['tipo_sensor_id'])->first();
                 
                 if (!$sensorMestre) {
-                    Log::warning("Hardware tentou ligar sensor com ID desconhecido no sistema: {$item['tipo_sensor_id']}. Adicione o tipo de sensor na tabela 'tipos_sensor' primeiro.");
-                    continue; // Ignora para evitar erro de Foreign Key
+                    Log::warning("Hardware tentou ligar sensor com ID desconhecido: {$item['tipo_sensor_id']}.");
+                    continue;
                 }
 
-                // 2. Grava a leitura (O tipo_sensor_id já foi validado acima)
+                // 2. Grava a leitura
                 $leitura = Leitura::create([
-                    'boia_id'        => $validated['boia_id'],
+                    'boia_id'        => $boia_id,
                     'tipo_sensor_id' => $item['tipo_sensor_id'],
                     'valor'          => $item['valor'],
+                    'rssi'           => $validated['rssi'] ?? null,
                     'data_hora'      => $agora
                 ]);
 
-                $limite = LimiteSensor::where('boia_id', $validated['boia_id'])
+                $limite = LimiteSensor::where('boia_id', $boia_id)
                                       ->where('tipo_sensor_id', $item['tipo_sensor_id'])
                                       ->first();
 
-                // 3. Auto-Discovery Contextual: Se o sensor existe no sistema mas não está nesta boia
+                // 3. Auto-Discovery Contextual
                 if (!$limite) {
                     LimiteSensor::create([
-                        'boia_id' => $validated['boia_id'],
+                        'boia_id' => $boia_id,
                         'tipo_sensor_id' => $item['tipo_sensor_id'],
                         'valor_minimo' => 0,
                         'valor_maximo' => 0,
@@ -64,28 +131,21 @@ class LeituraController extends Controller
                     continue; 
                 }
 
-                // 4. Verificação de Alertas (Apenas se o técnico já validou a configuração)
+                // 4. Verificação de Alertas
                 if ($limite->is_configurado) {
                     if ($item['valor'] < $limite->valor_minimo || $item['valor'] > $limite->valor_maximo) {
-                        // ... (lógica de alerta existente)
                         
-                        // ========================================================================
-                        // [NOVA LÓGICA ANTI-SPAM DE ALERTAS]
-                        // Verifica se JÁ EXISTE um alerta por resolver para esta boia e sensor
-                        // ========================================================================
-                        $alertaPendente = Alerta::where('boia_id', $validated['boia_id'])
-                            ->where('resolvido', 0) // 0 ou false (ainda não resolvido pelo técnico)
+                        $alertaPendente = Alerta::where('boia_id', $boia_id)
+                            ->where('resolvido', 0)
                             ->whereHas('leitura', function($query) use ($item) {
-                                // Garante que o alerta antigo é sobre o MESMO TIPO de sensor
                                 $query->where('tipo_sensor_id', $item['tipo_sensor_id']);
                             })
                             ->exists();
 
-                        // Só cria um alerta novo se a equipa não tiver nenhum pendente no ecrã!
                         if (!$alertaPendente) {
                             Alerta::create([
                                 'leitura_id' => $leitura->id,
-                                'boia_id'    => $validated['boia_id'],
+                                'boia_id'    => $boia_id,
                                 'gravidade'  => 'alta',
                                 'descricao'  => "O sensor registou {$item['valor']}. Está fora dos limites operacionais seguros [{$limite->valor_minimo} a {$limite->valor_maximo}].",
                                 'resolvido'  => false
@@ -97,12 +157,16 @@ class LeituraController extends Controller
                 }
             }
 
-            DB::commit(); // Sucesso absoluto, guarda tudo na BD
+            DB::commit();
 
             return response()->json([
                 'sucesso' => true,
-                'mensagem' => 'Pacote de leituras processado com sucesso.',
-                'alertas_disparados' => $alertasGerados
+                'mensagem' => 'Telemetria processada com sucesso.',
+                'boia_identificada' => $boia->nome,
+                'alertas_disparados' => $alertasGerados,
+                'configuracao' => [
+                    'intervalo_segundos' => $boia->intervalo_segundos ?? 300
+                ]
             ], Response::HTTP_CREATED);
 
         } catch (\Exception $e) {

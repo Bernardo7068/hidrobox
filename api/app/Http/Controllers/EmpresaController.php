@@ -18,6 +18,9 @@ class EmpresaController extends Controller
         $validated = $request->validate([
             'nome' => 'required|string|unique:empresas,nome',
             'nif'  => 'required|string|unique:empresas,nif',
+            'email_contacto' => 'nullable|email|max:255',
+            'telefone'       => 'nullable|string|max:20',
+            'morada'         => 'nullable|string|max:500',
             // Agora o admin é opcional no momento da criação da empresa
             'admin_id'       => 'nullable|exists:users,id',
             'admin_nome'     => 'nullable|string',
@@ -29,6 +32,9 @@ class EmpresaController extends Controller
             $empresa = Empresa::create([
                 'nome' => $validated['nome'],
                 'nif'  => $validated['nif'],
+                'email_contacto' => $validated['email_contacto'] ?? null,
+                'telefone'       => $validated['telefone'] ?? null,
+                'morada'         => $validated['morada'] ?? null,
             ]);
 
             if ($request->filled('admin_id')) {
@@ -78,6 +84,9 @@ class EmpresaController extends Controller
         $validated = $request->validate([
             'nome' => 'sometimes|string|unique:empresas,nome,' . $id,
             'nif'  => 'sometimes|string|unique:empresas,nif,' . $id,
+            'email_contacto' => 'nullable|email|max:255',
+            'telefone'       => 'nullable|string|max:20',
+            'morada'         => 'nullable|string|max:500',
         ]);
 
         $empresa->update($validated);

@@ -29,8 +29,12 @@ class UserController extends Controller
             'name'     => 'required|string',
             'email'    => 'required|email|unique:users,email',
             'password' => 'required|min:6',
-            'role'     => 'required|in:admin_empresa,tecnico_empresa,leitor_empresa',
+            'role'     => 'required|in:admin_empresa,tecnico_empresa,leitor_empresa,super_admin',
         ]);
+
+        if ($admin->role !== 'super_admin' && $validated['role'] === 'super_admin') {
+            return response()->json(['mensagem' => 'Acesso negado para criar Super Admin'], 403);
+        }
 
         // Super Admin pode criar em qualquer empresa (se passar empresa_id)
         // Admin Empresa só cria na sua
