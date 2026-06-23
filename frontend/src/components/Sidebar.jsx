@@ -1,7 +1,7 @@
 import Tooltip from './Tooltip';
 
 export default function Sidebar({ setAbaAtiva, abaAtiva, role, onLogout }) {
-  const baseClass = "group relative block p-4 rounded-2xl transition-all duration-300 font-bold cursor-pointer flex items-center gap-4 border-2 border-transparent";
+  const baseClass = "group relative block p-4 rounded-2xl transition-all duration-300 font-bold cursor-pointer flex items-center justify-center gap-4 border-2 border-transparent";
   const activeClass = "bg-white text-blue-900 shadow-xl shadow-blue-900/20 border-blue-200 scale-[1.02]";
   const inactiveClass = "text-blue-100 hover:bg-blue-800/50 hover:border-blue-700/50";
 
@@ -10,7 +10,7 @@ export default function Sidebar({ setAbaAtiva, abaAtiva, role, onLogout }) {
     { id: 'visao-geral', label: 'Estado da Rede', icon: '📊', desc: 'Resumo e Alertas Atuais' },
     { id: 'mapa', label: 'Mapa das Estações', icon: '🌍', desc: 'Localização no Rio' },
     { id: 'estatisticas', label: 'Histórico e Dados', icon: '📈', desc: 'Análise da Qualidade' },
-    { id: 'equipamentos', label: 'Gestão de Aparelhos', icon: '⚙️', desc: 'Boias e Configurações' },
+    { id: 'equipamentos', label: 'Gestão de Equipamentos', icon: '⚙️', desc: 'Boias e Configurações' },
   ];
 
   if (role === 'super_admin') {
@@ -39,17 +39,19 @@ export default function Sidebar({ setAbaAtiva, abaAtiva, role, onLogout }) {
 
       {/* Navegação Principal */}
       <nav className="flex-1 p-6 space-y-4 mt-4 relative z-10 overflow-y-auto overflow-x-hidden">
-        <p className="text-[10px] font-black text-blue-400/50 uppercase tracking-[0.3em] mb-6 px-2">Menu Principal</p>
+        <p className="text-[10px] font-black text-blue-400/50 uppercase tracking-[0.3em] mb-6 px-2 text-center">Menu Principal</p>
         
         {menuItems.map(item => (
-          <Tooltip key={item.id} text={item.desc} position="right">
+          <Tooltip key={item.id} text={item.desc} position="right" className="block w-full">
             <div 
               id={`sidebar-${item.id}`}
               onClick={() => setAbaAtiva(item.id)}
               className={`${baseClass} ${abaAtiva === item.id ? activeClass : inactiveClass} w-full`}
             >
-              <span className="text-2xl">{item.icon}</span>
-              <div className="flex flex-col">
+              <div className="flex items-center justify-center w-8">
+                <span className="text-2xl">{item.icon}</span>
+              </div>
+              <div className="flex flex-col text-left w-36">
                   <span className="leading-none text-sm">{item.label}</span>
                   <span className={`text-[10px] mt-1 font-bold tracking-tight uppercase opacity-60 ${abaAtiva === item.id ? 'text-blue-600' : 'text-blue-300/80'}`}>
                       {item.id.replace('-', ' ')}
@@ -65,7 +67,7 @@ export default function Sidebar({ setAbaAtiva, abaAtiva, role, onLogout }) {
 
       {/* Rodapé e Logout */}
       <div className="p-6 border-t border-blue-800 relative z-10 bg-slate-900/40">
-        <Tooltip text="Encerrar a sessão e sair" position="top">
+        <Tooltip text="Encerrar a sessão e sair" position="top" className="block w-full">
             <button 
                 onClick={onLogout}
                 className="w-full bg-rose-600 hover:bg-rose-700 text-white p-4 rounded-2xl font-black text-sm uppercase tracking-widest transition-all flex items-center justify-center gap-3 shadow-lg shadow-rose-900/20 active:scale-95"

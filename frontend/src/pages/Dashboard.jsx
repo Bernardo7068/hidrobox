@@ -2,20 +2,26 @@ import { useState, useEffect } from 'react';
 import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
 import VisaoGeral from '../components/VisaoGeral';
-import GestaoEquipamentos from '../components/GestaoEquipamentos';
-import MapaBoias from '../components/MapaBoias';
+import GestaoEquipamentos from '../components/GestaoEquipamentos.jsx';
+import MapaEstacoes from '../components/MapaEstacoes';
 import Estatisticas from './Estatisticas';
 import PainelSuperAdmin from '../components/PainelSuperAdmin';
 import PainelAdminEmpresa from '../components/PainelAdminEmpresa';
 import GuiaUtilizador from '../components/GuiaUtilizador';
 import GuiaInterativo from '../components/GuiaInterativo';
+import HelpPin from '../components/HelpPin';
 import api from '../api';
+import { io } from 'socket.io-client';
 
 export default function Dashboard({ onLogout }) {
   // Obter utilizador real do localStorage PRIMEIRO
-  const user = JSON.parse(localStorage.getItem('user') || '{"role": "leitor_empresa", "name": "Utilizador"}'); 
+  const user = JSON.parse(sessionStorage.getItem('user') || '{"role": "leitor_empresa", "name": "Utilizador"}'); 
 
-  const [abaAtiva, setAbaAtiva] = useState('guia');
+  const [abaAtiva, setAbaAtiva] = useState(() => sessionStorage.getItem('abaAtiva') || 'guia');
+
+  useEffect(() => {
+    sessionStorage.setItem('abaAtiva', abaAtiva);
+  }, [abaAtiva]);
   const [boias, setBoias] = useState([]);
   const [gateways, setGateways] = useState([]);
   const [alertas, setAlertas] = useState([]);
@@ -139,8 +145,39 @@ export default function Dashboard({ onLogout }) {
 
   useEffect(() => {
     carregarDadosGlobais();
-    const intervalo = setInterval(carregarDadosGlobais, 8000);
-    return () => clearInterval(intervalo);
+    
+    // 1. Inicializar a ligação ao servidor WebSocket
+    const wsUrl = import.meta.env.VITE_WS_URL || 'http://localhost:3001';
+    const socket = io(wsUrl);
+
+    socket.on('connect', () => {
+      console.log('[Dashboard] Ligado ao WebSocket em tempo real:', socket.id);
+      // O super_admin pode entrar numa sala global ou todas as empresas (vamos criar uma sala super_admin para ele)
+      if (user.role === 'super_admin') {
+        socket.emit('join-company', 'super_admin');
+      } else if (user.empresa_id) {
+        socket.emit('join-company', user.empresa_id);
+      }
+    });
+
+    // 2. Ouvir eventos em tempo real para atualizar o ecrã
+    socket.on('nova-leitura', (data) => {
+      console.log('🌊 Nova leitura recebida (Tempo Real):', data);
+      carregarDadosGlobais();
+    });
+
+    socket.on('novo-alerta', (data) => {
+      console.log('⚠️ Novo alerta recebido (Tempo Real):', data);
+      carregarDadosGlobais();
+    });
+
+    // 3. Fallback de segurança (de 8s passa para 60s já que temos WebSockets agora)
+    const intervalo = setInterval(carregarDadosGlobais, 60000);
+    
+    return () => {
+      clearInterval(intervalo);
+      socket.disconnect(); // Desligar quando sair do Dashboard
+    };
   }, []);
 
   if (carregando) {
@@ -171,32 +208,7 @@ export default function Dashboard({ onLogout }) {
           {abaAtiva === 'visao-geral' && <VisaoGeral boias={boias} alertas={alertas} setAbaAtiva={setAbaAtiva} isHelpMode={isHelpMode} />}
           
           {abaAtiva === 'mapa' && (
-            <div className="h-full flex flex-col space-y-6 animate-fade-in">
-              <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-slate-100 flex justify-between items-center relative">
-                {isHelpMode && (
-                  <div className="absolute -top-3 -left-3 bg-amber-400 text-amber-950 text-sm font-black p-5 rounded-2xl shadow-xl w-80 z-50 animate-bounce-in border-4 border-white">
-                    📍 Aqui podes ver a localização exata de cada boia e ponto de rede. Clica nos marcadores para ver o estado atual de cada estação.
-                  </div>
-                )}
-                <div>
-                  <h2 className="text-3xl font-black text-slate-800 tracking-tight">Mapa das Estações</h2>
-                  <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mt-1">Exploração de rede em tempo real • Rio Lis</p>
-                </div>
-                <div className="flex gap-4 relative">
-                  {isHelpMode && (
-                    <div className="absolute -top-16 right-0 bg-amber-400 text-amber-950 text-sm font-black p-4 rounded-xl shadow-xl w-64 z-50 text-center animate-bounce-in border-4 border-white">
-                      Mostra quantas boias estão a enviar dados neste momento.
-                    </div>
-                  )}
-                  <div className="bg-blue-50 px-4 py-2 rounded-xl border border-blue-100 text-blue-600 text-[10px] font-black uppercase">
-                    {boias.length} Estações Ligadas
-                  </div>
-                </div>
-              </div>
-              <div className="flex-1 rounded-[3rem] overflow-hidden shadow-2xl border-4 border-white relative">
-                <MapaBoias boias={boias} gateways={gateways} />
-              </div>
-            </div>
+            <MapaEstacoes boias={boias} gateways={gateways} isHelpMode={isHelpMode} />
           )}
 
           {abaAtiva === 'equipamentos' && <GestaoEquipamentos isHelpMode={isHelpMode} />}

@@ -14,12 +14,21 @@ let DefaultIcon = L.icon({
 });
 L.Marker.prototype.options.icon = DefaultIcon;
 
-// Ícone de Torre de Gateway
+// Ícone de Torre de Gateway Premium
 const towerIcon = L.divIcon({
-    html: '<div style="font-size: 24px;">📡</div>',
-    className: 'custom-div-icon',
-    iconSize: [30, 30],
-    iconAnchor: [15, 15]
+    html: `
+        <div class="relative flex flex-col items-center cursor-pointer group">
+            <div class="absolute w-16 h-16 bg-blue-500 rounded-full animate-ping opacity-20 -top-2"></div>
+            <div class="w-12 h-12 bg-slate-900 border-4 border-blue-500 rounded-2xl flex items-center justify-center shadow-2xl shadow-blue-500/40 z-10 group-hover:bg-blue-900 transition-colors">
+                <span class="text-2xl text-white">📡</span>
+            </div>
+            <div class="w-1.5 h-8 bg-slate-900 z-0"></div>
+            <div class="w-5 h-2 bg-slate-900 rounded-full z-0"></div>
+        </div>
+    `,
+    className: 'bg-transparent border-none',
+    iconSize: [48, 68],
+    iconAnchor: [24, 68]
 });
 
 export default function MapaBoias({ boias = [], gateways = [] }) {
@@ -97,57 +106,35 @@ export default function MapaBoias({ boias = [], gateways = [] }) {
                             key={`boia-${boia.id}`} 
                             position={[parseFloat(boia.latitude), parseFloat(boia.longitude)]}
                         >
-                            <Popup minWidth={300} className="custom-popup">
-                                <div className="p-4 space-y-6">
-                                    <div className="border-b border-slate-100 pb-4">
-                                        <div className="flex justify-between items-start mb-2">
-                                            <span className="text-[10px] font-black bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full uppercase tracking-widest">Estação #{boia.id}</span>
-                                            <span className="flex items-center gap-1 text-[10px] font-black text-emerald-600">
-                                                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span> ONLINE
-                                            </span>
-                                        </div>
-                                        <div className="text-2xl font-black text-slate-800 tracking-tighter leading-none">{boia.nome}</div>
-                                        <div className="text-xs text-slate-400 font-bold mt-2 flex items-center gap-1">
-                                            📍 {boia.localizacao_texto || 'Margem do Rio Lis'}
-                                        </div>
+                            <Popup minWidth={220} className="custom-popup">
+                                <div className="p-3">
+                                    <div className="flex justify-between items-center mb-1">
+                                        <div className="text-sm font-black text-slate-800 uppercase tracking-tighter leading-none">{boia.nome}</div>
+                                        <div className={`w-2.5 h-2.5 rounded-full ${boia.estado === 'ativa' ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
                                     </div>
-
-                                    <div className="grid grid-cols-2 gap-3">
-                                        {boia.leituras?.slice(-4).map(leitura => {
-                                            const info = getSensorInfo(leitura.tipo_sensor_id);
-                                            return (
-                                                <div key={leitura.id} className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter mb-1 flex items-center gap-1">
-                                                        {info.icon} {info.nome}
-                                                    </div>
-                                                    <div className="text-lg font-black text-slate-800 flex items-baseline gap-1">
-                                                        {leitura.valor} <span className="text-[10px] text-slate-400">{info.unidade}</span>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
+                                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">
+                                        📍 {boia.localizacao_texto || 'Desconhecido'}
                                     </div>
-
-                                    <div className="space-y-3 pt-2">
-                                        <div className="flex justify-between items-center text-xs font-bold px-1">
-                                            <span className="text-slate-400 uppercase tracking-widest">Nível de Bateria</span>
-                                            <span className="text-slate-800">{boia.bateria}%</span>
+                                    
+                                    <div className="flex gap-2 mb-3">
+                                        <div className="flex-1 bg-slate-50 border border-slate-100 rounded-lg p-2 text-center">
+                                            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Bateria</div>
+                                            <div className="text-sm font-black text-slate-800">{boia.bateria}%</div>
                                         </div>
-                                        <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                                            <div className="bg-emerald-500 h-full transition-all duration-500" style={{ width: `${boia.bateria}%` }}></div>
+                                        <div className="flex-1 bg-slate-50 border border-slate-100 rounded-lg p-2 text-center">
+                                            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Sinal</div>
+                                            <div className="text-sm font-black text-slate-800">{boia.rssi_ultimo ? `${boia.rssi_ultimo} dBm` : '---'}</div>
                                         </div>
                                     </div>
 
-                                    <div className="pt-2">
-                                        <a 
-                                            href={`https://www.google.com/maps?q=${boia.latitude},${boia.longitude}`}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            className="block text-center bg-blue-600 text-white py-3 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg shadow-blue-100"
-                                        >
-                                            Navegar para Local 🚀
-                                        </a>
-                                    </div>
+                                    <a 
+                                        href={`https://www.google.com/maps?q=${boia.latitude},${boia.longitude}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="block text-center bg-indigo-600 text-white py-2 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-colors"
+                                    >
+                                        Navegar GPS
+                                    </a>
                                 </div>
                             </Popup>
                         </Marker>

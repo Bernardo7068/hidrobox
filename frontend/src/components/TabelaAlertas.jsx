@@ -1,7 +1,7 @@
 import api from '../api';
 
 export default function TabelaAlertas({ alertas, onAtualizar }) {
-    const user = JSON.parse(localStorage.getItem('user') || '{"role": "leitor_empresa"}');
+    const user = JSON.parse(sessionStorage.getItem('user') || '{"role": "leitor_empresa"}');
     const isLeitor = user.role === 'leitor_empresa';
     
     const alertasPendentes = alertas?.filter(alerta => alerta.resolvido === 0 || alerta.resolvido === false) || [];

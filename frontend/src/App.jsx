@@ -7,7 +7,7 @@ function App() {
     const [carregando, setCarregando] = useState(true);
 
     useEffect(() => {
-        const userSalvo = localStorage.getItem('user');
+        const userSalvo = sessionStorage.getItem('user');
         if (userSalvo) {
             setUser(JSON.parse(userSalvo));
         }
@@ -15,8 +15,8 @@ function App() {
     }, []);
 
     const handleLogout = () => {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
+        sessionStorage.removeItem('token');
+        sessionStorage.removeItem('user');
         setUser(null);
     };
 

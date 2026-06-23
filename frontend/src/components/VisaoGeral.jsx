@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import CartoesEstado from './CartoesEstado';
 import TabelaAlertas from './TabelaAlertas';
 import Tooltip from './Tooltip';
+import HelpPin from './HelpPin';
 import api from '../api';
 
 export default function VisaoGeral({ boias = [], alertas = [], setAbaAtiva, isHelpMode }) {
@@ -20,20 +21,12 @@ export default function VisaoGeral({ boias = [], alertas = [], setAbaAtiva, isHe
 
   return (
     <div className="max-w-7xl mx-auto space-y-12 pb-12 animate-fade-in relative">
-      {isHelpMode && (
-        <div className="absolute top-0 right-0 bg-amber-400 text-amber-950 text-sm font-black p-5 rounded-2xl shadow-xl w-80 z-50 animate-bounce-in border-4 border-white">
-          🎯 <strong>Estado da Rede:</strong> Este é o teu ecrã principal. Dá-te um resumo de como estão todos os aparelhos e avisa logo se algo estiver errado.
-        </div>
-      )}
+      {isHelpMode && <HelpPin text="🎯 Estado da Rede: Este é o teu ecrã principal. Dá-te um resumo de como estão todos os aparelhos e avisa logo se algo estiver errado." className="absolute top-4 right-4" position="left" />}
       
       {/* Alerta de Descoberta de Hardware (Boias Pendentes) */}
       {boiasPendentes.length > 0 && (
         <section className="mx-4 bg-amber-50 border-2 border-amber-200 p-6 rounded-[2rem] shadow-lg shadow-amber-200/20 flex flex-col md:flex-row items-center justify-between gap-6 animate-bounce-slow relative">
-          {isHelpMode && (
-            <div className="absolute -top-12 left-10 bg-amber-400 text-amber-950 text-sm font-black p-5 rounded-2xl shadow-xl w-80 z-50 border-4 border-white">
-              ⚠️ <strong>Novo Aparelho:</strong> O sistema detetou uma nova boia a enviar dados, mas ainda não foi configurada. Clica no botão para a adicionares à tua lista.
-            </div>
-          )}
+          {isHelpMode && <HelpPin text="⚠️ Novo Aparelho: O sistema detetou uma nova boia a enviar dados, mas ainda não foi configurada. Clica no botão para a adicionares à tua lista." className="absolute -top-3 -left-3" position="right" />}
           <div className="flex items-center gap-5">
             <Tooltip text="Aparelho detetado pelo Ponto de Rede">
                 <div className="w-14 h-14 bg-amber-500 rounded-2xl flex items-center justify-center text-2xl shadow-lg shadow-amber-500/40 cursor-help">
@@ -63,11 +56,7 @@ export default function VisaoGeral({ boias = [], alertas = [], setAbaAtiva, isHe
           <p className="text-slate-400 font-bold uppercase text-xs tracking-[0.3em] ml-1">Estado das Estações HidroBox</p>
         </div>
         <div className="flex gap-4 relative">
-            {isHelpMode && (
-              <div className="absolute -top-14 right-0 bg-amber-400 text-amber-950 text-sm font-black p-4 rounded-xl shadow-lg w-64 text-center z-50 border-4 border-white">
-                Indica que a aplicação está ligada à base de dados central.
-              </div>
-            )}
+            {isHelpMode && <HelpPin text="Indica que a aplicação está ligada à base de dados central." className="absolute -top-2 -right-2" position="left" />}
             <Tooltip text="Ligação ativa com a API Central">
                 <div className="bg-emerald-50 px-6 py-3 rounded-2xl border border-emerald-100 flex items-center gap-3 shadow-sm cursor-help">
                     <span className="w-2 h-2 bg-emerald-500 rounded-full animate-ping"></span>
@@ -79,11 +68,7 @@ export default function VisaoGeral({ boias = [], alertas = [], setAbaAtiva, isHe
 
       {/* Estatísticas Macro (Refactorizadas para serem úteis) */}
       <div className="relative">
-        {isHelpMode && (
-          <div className="absolute -left-4 top-1/2 -translate-y-1/2 bg-amber-400 text-amber-950 text-sm font-black p-5 rounded-2xl shadow-xl w-80 z-50 -ml-80 border-4 border-white">
-            👉 <strong>Dados Rápidos:</strong> Vê quantas boias estão ligadas, quantos avisos tens e a saúde geral do rio.
-          </div>
-        )}
+        {isHelpMode && <HelpPin text="👉 Dados Rápidos: Vê quantas boias estão ligadas, quantos avisos tens e a saúde geral do rio." className="absolute -top-2 -left-2" position="right" />}
         <CartoesEstado boias={boias} alertas={alertas} />
       </div>
 
@@ -91,11 +76,7 @@ export default function VisaoGeral({ boias = [], alertas = [], setAbaAtiva, isHe
         
         {/* Coluna de Alertas e Notificações (Foco na Ação) */}
         <div className="xl:col-span-1 space-y-6 relative">
-          {isHelpMode && (
-            <div className="absolute -top-12 left-0 bg-amber-400 text-amber-950 text-sm font-black p-5 rounded-2xl shadow-xl w-80 z-50 animate-bounce-in border-4 border-white">
-              🚨 <strong>Avisos Urgentes:</strong> Aqui aparecem os problemas que precisam da tua atenção imediata.
-            </div>
-          )}
+          {isHelpMode && <HelpPin text="🚨 Avisos Urgentes: Aqui aparecem os problemas que precisam da tua atenção imediata." className="absolute top-2 -left-2" position="right" />}
           <div className="flex items-center gap-3 ml-4">
             <Tooltip text="Eventos que requerem atenção imediata" position="right">
                 <span className="text-xl cursor-help">🚨</span>

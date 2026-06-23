@@ -159,6 +159,55 @@ class LeituraController extends Controller
 
             DB::commit();
 
+            // --- NOTIFICAÇÃO WEBSOCKETS ---
+            try {
+                $boiaComZona = \App\Models\Boia::with('zona')->find($boia_id);
+                $empresa_id = $boiaComZona && $boiaComZona->zona ? $boiaComZona->zona->empresa_id : null;
+                
+                if ($empresa_id) {
+                    $payloadLeitura = [
+                        'empresa_id' => $empresa_id,
+                        'event' => 'nova-leitura',
+                        'data' => [
+                            'boia_id' => $boia_id,
+                            'nome' => $boia->nome,
+                            'alertas' => $alertasGerados
+                        ]
+                    ];
+                    
+                    // Notificar empresa
+                    \Illuminate\Support\Facades\Http::withHeaders([
+                        'x-internal-token' => env('INTERNAL_API_SECRET', 'chave-secreta-interna-hidrobox')
+                    ])->timeout(2)->post('http://localhost:3001/api/broadcast', $payloadLeitura);
+                    
+                    // Notificar super_admin
+                    $payloadLeitura['empresa_id'] = 'super_admin';
+                    \Illuminate\Support\Facades\Http::withHeaders([
+                        'x-internal-token' => env('INTERNAL_API_SECRET', 'chave-secreta-interna-hidrobox')
+                    ])->timeout(2)->post('http://localhost:3001/api/broadcast', $payloadLeitura);
+
+                    // Se houve alertas gerados, enviamos um evento específico
+                    if ($alertasGerados > 0) {
+                        $payloadAlerta = [
+                            'empresa_id' => $empresa_id,
+                            'event' => 'novo-alerta',
+                            'data' => ['boia_id' => $boia_id]
+                        ];
+                        \Illuminate\Support\Facades\Http::withHeaders([
+                            'x-internal-token' => env('INTERNAL_API_SECRET', 'chave-secreta-interna-hidrobox')
+                        ])->timeout(2)->post('http://localhost:3001/api/broadcast', $payloadAlerta);
+                        
+                        $payloadAlerta['empresa_id'] = 'super_admin';
+                        \Illuminate\Support\Facades\Http::withHeaders([
+                            'x-internal-token' => env('INTERNAL_API_SECRET', 'chave-secreta-interna-hidrobox')
+                        ])->timeout(2)->post('http://localhost:3001/api/broadcast', $payloadAlerta);
+                    }
+                }
+            } catch (\Exception $wsException) {
+                // Ignorar erro do websocket silenciosamente para não falhar a resposta à ESP32
+                Log::warning("Aviso: Falha ao notificar servidor de WebSockets: " . $wsException->getMessage());
+            }
+
             return response()->json([
                 'sucesso' => true,
                 'mensagem' => 'Telemetria processada com sucesso.',

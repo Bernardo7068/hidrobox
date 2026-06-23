@@ -1,0 +1,45 @@
+            // --- ENVIAR PARA O LARAVEL E PROCESSAR DOWNLINK ---
+            if (WiFi.status() == WL_CONNECTED) {
+              HTTPClient http;
+              http.begin(serverName);
+              http.addHeader("Content-Type", "application/json");
+              http.addHeader("X-HydroBox-Token", apiKey);
+
+              int httpResponseCode = http.POST(jsonPayload);
+
+              if (httpResponseCode == 201 || httpResponseCode == 200) {
+                Serial.println("[API] SUCESSO! Telemetria encriptada enviada e guardada.");
+
+                // ==========================================
+                // LER A API E ENVIAR ORDEM (DOWNLINK)
+                // ==========================================
+                String respostaApi = http.getString();
+                StaticJsonDocument<512> docRes;
+
+                if (deserializeJson(docRes, respostaApi) == DeserializationError::Ok) {
+                   // A API do Laravel responde sempre com o objeto "configuracao"
+                   if (docRes.containsKey("configuracao")) {
+                      int novoIntervalo = docRes["configuracao"]["intervalo_segundos"];
+
+                      // O Gateway muda de "Ouvinte" para "Emissor"
+                      LoRa.beginPacket();
+                      LoRa.print(novoIntervalo); // Envia só o número para poupar bateria na boia
+                      LoRa.endPacket();
+
+                      // IMPORTANTE: Obriga o Gateway a voltar a ouvir o ar imediatamente!
+                      LoRa.receive();
+
+                      Serial.printf(">> Downlink enviado para a boia: Dormir por %d segundos.\n",
+  novoIntervalo);
+                   }
+                }
+              } else {
+                Serial.print("[API] ERRO ");
+                Serial.print(httpResponseCode);
+                Serial.println(": " + http.getString());
+              }
+              http.end();
+            } else {
+              Serial.println("ERRO: WiFi desconectado!");
+              WiFi.reconnect();
+            }

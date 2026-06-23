@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import api from '../api';
 import Tooltip from './Tooltip';
+import HelpPin from './HelpPin';
 
 export default function PainelAdminEmpresa({ isHelpMode }) {
-    const userLogado = JSON.parse(localStorage.getItem('user') || '{}');
+    const userLogado = JSON.parse(sessionStorage.getItem('user') || '{}');
     const [usuarios, setUsuarios] = useState([]);
     const [novoUser, setNovoUser] = useState({ name: '', email: '', password: '', role: 'tecnico_empresa' });
     const [editandoUser, setEditandoUser] = useState(null);
@@ -70,7 +71,8 @@ export default function PainelAdminEmpresa({ isHelpMode }) {
         <div className="space-y-12 animate-fade-in p-2 max-w-7xl mx-auto">
             
             {/* Header com Branding Dinâmico */}
-            <div className="bg-white rounded-[3rem] p-10 shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-center gap-8">
+            <div className="bg-white rounded-[3rem] p-10 shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-center gap-8 relative">
+                {isHelpMode && <HelpPin text="👥 Gestão de Equipa: Aqui podes convidar e gerir os técnicos e administradores da tua empresa. Mantém a tua equipa atualizada para garantir uma resposta rápida aos alertas!" className="absolute -top-4 -left-4" position="right" />}
                 <div className="flex items-center gap-6">
                     <div className="h-20 w-20 bg-gradient-to-br from-indigo-600 to-blue-500 rounded-[2rem] flex items-center justify-center text-white text-3xl shadow-xl shadow-indigo-100">
                         {userLogado.role === 'super_admin' ? '🌍' : '🏢'}
@@ -199,7 +201,8 @@ export default function PainelAdminEmpresa({ isHelpMode }) {
                             </form>
                         </div>
                     ) : (
-                        <div className="bg-slate-900 p-10 rounded-[3rem] text-white shadow-2xl shadow-slate-200 sticky top-8 overflow-hidden">
+                        <div className="bg-slate-900 p-10 rounded-[3rem] text-white shadow-2xl shadow-slate-200 sticky top-8 overflow-hidden relative">
+                            {isHelpMode && <HelpPin text="✍️ Gestão de Acesso: Preenche este formulário para convidar um novo membro. Define a password temporária que ele deve usar para entrar na plataforma." className="absolute top-4 right-4" position="left" />}
                             <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-600/20 rounded-full blur-[50px] -mr-16 -mt-16"></div>
                             
                             <div className="relative z-10">

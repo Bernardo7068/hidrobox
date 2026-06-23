@@ -18,38 +18,64 @@ class EstatisticasController extends Controller
         $user = $request->user();
         $query = Leitura::query()
             ->join('boias', 'leituras.boia_id', '=', 'boias.id')
+            ->join('zonas', 'boias.zona_id', '=', 'zonas.id')
             ->select(
                 'leituras.tipo_sensor_id',
                 DB::raw('AVG(CAST(leituras.valor AS DECIMAL)) as media'),
                 DB::raw('MAX(CAST(leituras.valor AS DECIMAL)) as maximo'),
-                DB::raw('MIN(CAST(leituras.valor AS DECIMAL)) as minimo'),
-                DB::raw('AVG(leituras.rssi) as rssi_medio')
+                DB::raw('MIN(CAST(leituras.valor AS DECIMAL)) as minimo')
             )
             ->groupBy('leituras.tipo_sensor_id');
 
         // Filtro por Empresa (Se não for Super Admin)
         if ($user->role !== 'super_admin') {
-            $query->where('boias.empresa_id', $user->empresa_id);
+            $query->where('zonas.empresa_id', $user->empresa_id);
         }
 
-        // Filtros Adicionais da Query (Corrigido para evitar NULL no where)
+        // Filtros Adicionais da Query
         if ($request->filled('boia_id')) $query->where('leituras.boia_id', $request->boia_id);
         if ($request->filled('data_inicio')) $query->where('leituras.data_hora', '>=', $request->data_inicio);
         if ($request->filled('data_fim')) $query->where('leituras.data_hora', '<=', $request->data_fim);
 
         $estatisticas = $query->with('tipoSensor')->get();
 
-        // Dados para Gráfico Temporal (últimos 7 dias por padrão)
-        $temporalRaw = Leitura::query()
+        // 2. Query de Telemetria (Sinal RSSI agrupado por Boia)
+        $telemetriaQuery = Leitura::query()
             ->join('boias', 'leituras.boia_id', '=', 'boias.id')
+            ->join('zonas', 'boias.zona_id', '=', 'zonas.id')
+            ->select(
+                'boias.nome as boia',
+                DB::raw('AVG(leituras.rssi) as rssi_medio')
+            )
+            ->whereNotNull('leituras.rssi')
+            ->groupBy('boias.nome');
+
+        if ($user->role !== 'super_admin') {
+            $telemetriaQuery->where('zonas.empresa_id', $user->empresa_id);
+        }
+        if ($request->filled('boia_id')) $telemetriaQuery->where('leituras.boia_id', $request->boia_id);
+        if ($request->filled('data_inicio')) $telemetriaQuery->where('leituras.data_hora', '>=', $request->data_inicio);
+        if ($request->filled('data_fim')) $telemetriaQuery->where('leituras.data_hora', '<=', $request->data_fim);
+
+        $telemetria = $telemetriaQuery->get();
+
+        // Dados para Gráfico Temporal (últimos 7 dias por padrão)
+        $temporalQuery = Leitura::query()
+            ->join('boias', 'leituras.boia_id', '=', 'boias.id')
+            ->join('zonas', 'boias.zona_id', '=', 'zonas.id')
             ->join('tipos_sensor', 'leituras.tipo_sensor_id', '=', 'tipos_sensor.id')
             ->select(
                 DB::raw('DATE(data_hora) as data'),
                 'tipos_sensor.nome as sensor',
                 DB::raw('AVG(CAST(valor AS DECIMAL)) as media')
             )
-            ->where('data_hora', '>=', now()->subDays(7))
-            ->groupBy('data', 'sensor')
+            ->where('data_hora', '>=', now()->subDays(7));
+
+        if ($user->role !== 'super_admin') {
+            $temporalQuery->where('zonas.empresa_id', $user->empresa_id);
+        }
+        
+        $temporalRaw = $temporalQuery->groupBy('data', 'sensor')
             ->orderBy('data', 'asc')
             ->get();
 
@@ -64,7 +90,8 @@ class EstatisticasController extends Controller
 
         return response()->json([
             'geral' => $estatisticas,
-            'temporal' => $temporal
+            'temporal' => $temporal,
+            'telemetria' => $telemetria
         ]);
     }
 
@@ -77,7 +104,11 @@ class EstatisticasController extends Controller
 
         // Lógica de filtros similar ao getEstatisticas...
         $boias = Boia::query();
-        if ($user->role !== 'super_admin') $boias->where('empresa_id', $user->empresa_id);
+        if ($user->role !== 'super_admin') {
+            $boias->whereHas('zona', function ($q) use ($user) {
+                $q->where('empresa_id', $user->empresa_id);
+            });
+        }
         if ($request->has('boia_id')) $boias->where('id', $request->boia_id);
         
         $boias = $boias->with(['leituras' => function($q) use ($request) {

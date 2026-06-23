@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api';
+import { io } from 'socket.io-client';
 import Tooltip from './Tooltip';
+import HelpPin from './HelpPin';
 import { MapContainer, TileLayer, Marker, Circle, Popup, Polyline, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -32,12 +34,21 @@ let DefaultIcon = L.icon({
 });
 L.Marker.prototype.options.icon = DefaultIcon;
 
-// Ícone de Torre de Gateway
+// Ícone de Torre de Gateway Premium
 const towerIcon = L.divIcon({
-    html: '<div style="font-size: 24px;">📡</div>',
-    className: 'custom-div-icon',
-    iconSize: [30, 30],
-    iconAnchor: [15, 15]
+    html: `
+        <div class="relative flex flex-col items-center cursor-pointer group">
+            <div class="absolute w-16 h-16 bg-blue-500 rounded-full animate-ping opacity-20 -top-2"></div>
+            <div class="w-12 h-12 bg-slate-900 border-4 border-blue-500 rounded-2xl flex items-center justify-center shadow-2xl shadow-blue-500/40 z-10 group-hover:bg-blue-900 transition-colors">
+                <span class="text-2xl text-white">📡</span>
+            </div>
+            <div class="w-1.5 h-8 bg-slate-900 z-0"></div>
+            <div class="w-5 h-2 bg-slate-900 rounded-full z-0"></div>
+        </div>
+    `,
+    className: 'bg-transparent border-none',
+    iconSize: [48, 68],
+    iconAnchor: [24, 68]
 });
 
 // Componente para controlar o centro do mapa programaticamente
@@ -87,14 +98,18 @@ const isOverdue = (lastDate, days) => {
 };
 
 export default function GestaoEquipamentos({ isHelpMode }) {
-    // Simulação de obtenção do utilizador do localStorage (ou contexto)
-    const user = JSON.parse(localStorage.getItem('user') || '{"role": "leitor_empresa"}');
+    // Simulação de obtenção do utilizador do sessionStorage (ou contexto)
+    const user = JSON.parse(sessionStorage.getItem('user') || '{"role": "leitor_empresa"}');
     const isSuperAdmin = user.role === 'super_admin';
     const isAdmin = user.role === 'admin_empresa' || isSuperAdmin;
     const isTecnico = user.role === 'tecnico_empresa';
     const isLeitor = user.role === 'leitor_empresa';
 
-    const [subAba, setSubAba] = useState('inventario');
+    const [subAba, setSubAba] = useState(() => sessionStorage.getItem('subAba') || 'inventario');
+
+    useEffect(() => {
+        sessionStorage.setItem('subAba', subAba);
+    }, [subAba]);
 
     const [zonas, setZonas] = useState([]);
     const [boias, setBoias] = useState([]);
@@ -229,11 +244,34 @@ export default function GestaoEquipamentos({ isHelpMode }) {
 
     useEffect(() => { 
         carregarDadosIniciais(); 
-        // Polling apenas se estivermos no inventário para ver leituras em tempo real
+        
+        const wsUrl = import.meta.env.VITE_WS_URL || 'http://localhost:3001';
+        const socket = io(wsUrl);
+
+        socket.on('connect', () => {
+            if (user.role === 'super_admin') {
+                socket.emit('join-company', 'super_admin');
+            } else if (user.empresa_id) {
+                socket.emit('join-company', user.empresa_id);
+            }
+        });
+
+        socket.on('nova-leitura', () => {
+            if (subAba === 'inventario') carregarDadosIniciais();
+        });
+
+        socket.on('novo-alerta', () => {
+            if (subAba === 'inventario') carregarDadosIniciais();
+        });
+
         const intervalo = setInterval(() => {
             if (subAba === 'inventario') carregarDadosIniciais();
-        }, 4000);
-        return () => clearInterval(intervalo);
+        }, 60000); // Fallback de 60s
+        
+        return () => {
+            clearInterval(intervalo);
+            socket.disconnect();
+        };
     }, [subAba]);
 
     const carregarDadosIniciais = async () => {
@@ -548,7 +586,7 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                     onClick={() => setSubAba('rede')}
                     className={`${tabBase} ${subAba === 'rede' ? tabActive : tabInactive}`}
                 >
-                    <span className="text-xl">🗼</span> Hub de Rede
+                    <span className="text-xl">🗼</span> Torres de Comunicação
                 </button>
                 {(isAdmin || isTecnico || isLeitor) && (
                     <button
@@ -578,14 +616,10 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                 {/* ABA 1: MONITORIZAÇÃO */}
                 {subAba === 'inventario' && (
                     <div className="space-y-16 relative">
-                        {isHelpMode && (
-                            <div className="absolute -top-12 left-0 bg-amber-400 text-amber-950 text-sm font-black p-5 rounded-2xl shadow-xl w-80 z-50 animate-bounce-in border-4 border-white">
-                                🖥️ <strong>Monitorização:</strong> Aqui podes ver os dados em tempo real de todas as tuas estações. Clica num cartão para abrir a Ficha Técnica da boia.
-                            </div>
-                        )}
+                        {isHelpMode && <HelpPin text="🖥️ Monitorização: Aqui podes ver os dados em tempo real de todas as tuas estações. Clica num cartão para abrir a Ficha Técnica da boia." className="absolute top-4 left-4" position="right" />}
                         <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-4">
                             <div>
-                                <h2 className="text-5xl font-black text-slate-800 tracking-tight">Lista de Aparelhos</h2>
+                                <h2 className="text-5xl font-black text-slate-800 tracking-tight">Lista de Dispositivos</h2>
                                 <p className="text-slate-400 font-medium text-lg mt-2 italic">Controlo e estado de conservação das boias</p>
                             </div>
                             <div className="flex gap-4">
@@ -681,13 +715,14 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                                                                 <div className="text-[10px] font-black text-blue-600 uppercase tracking-[0.3em]">Hardware ID #{boia.id}</div>
                                                                 {/* Indicador de Sinal de Rede Visual (NOVO) */}
                                                                 <div className="flex items-center gap-3 bg-slate-900 px-4 py-2 rounded-2xl border border-white/10 shadow-2xl group-hover:scale-105 transition-transform">
-                                                                    <div className="flex gap-1 items-end h-4">
+                                                                    <div className={`flex gap-1 items-end h-4 ${isOffline ? 'opacity-50' : ''}`}>
                                                                         {[1, 2, 3, 4, 5].map((bar) => {
                                                                             const strength = boia.rssi_ultimo ? (boia.rssi_ultimo + 140) / 110 : 0;
                                                                             const isActive = strength > (bar / 5);
                                                                             return (
                                                                                 <div key={bar} 
                                                                                     className={`w-1 rounded-full transition-all ${
+                                                                                        isOffline ? (isActive ? 'bg-slate-500' : 'bg-white/5') :
                                                                                         isActive 
                                                                                             ? (strength > 0.7 ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]' : strength > 0.4 ? 'bg-amber-400' : 'bg-rose-400') 
                                                                                             : 'bg-white/10'
@@ -699,16 +734,18 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                                                                     </div>
                                                                     <div className="flex flex-col">
                                                                         <span className={`text-sm font-black uppercase leading-tight ${
-                                                                            !boia.rssi_ultimo ? 'text-slate-500' :
+                                                                            isOffline || !boia.rssi_ultimo ? 'text-slate-500' :
                                                                             boia.rssi_ultimo > -90 ? 'text-emerald-400' :
                                                                             boia.rssi_ultimo > -115 ? 'text-amber-400' : 'text-rose-400'
                                                                         }`}>
-                                                                            {!boia.rssi_ultimo ? 'Sem Sinal' :
+                                                                            {isOffline ? 'Sinal Perdido' :
+                                                                             !boia.rssi_ultimo ? 'Sem Sinal' :
                                                                              boia.rssi_ultimo > -90 ? 'Excelente' :
                                                                              boia.rssi_ultimo > -115 ? 'Estável' : 'Sinal Crítico'}
                                                                         </span>
                                                                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mt-1">
-                                                                            {boia.rssi_ultimo ? `${boia.rssi_ultimo} dBm` : 'Hardware Offline'}
+                                                                            {isOffline ? `Último: ${boia.rssi_ultimo ?? '?'} dBm` :
+                                                                             boia.rssi_ultimo ? `${boia.rssi_ultimo} dBm` : 'Hardware Offline'}
                                                                         </span>
                                                                     </div>
                                                                 </div>
@@ -854,13 +891,9 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                 {/* ABA 2: NOVO REGISTO */}
                 {subAba === 'nova' && (
                     <div className="max-w-4xl mx-auto space-y-12 animate-fade-in relative">
-                        {isHelpMode && (
-                            <div className="absolute -top-12 left-0 bg-amber-400 text-amber-950 text-sm font-black p-5 rounded-2xl shadow-xl w-80 z-50 animate-bounce-in border-4 border-white">
-                                ➕ <strong>Novo Registo:</strong> Usa este formulário para adicionar uma nova boia à tua rede. Segue os 3 passos: Identidade, Localização e Sensores.
-                            </div>
-                        )}
+                        {isHelpMode && <HelpPin text="➕ Novo Registo: Usa este formulário para adicionar uma nova boia à tua rede. Segue os 3 passos: Identidade, Localização e Sensores." className="absolute top-4 left-4" position="right" />}
                         <header className="text-center space-y-4">
-                            <h2 className="text-5xl font-black text-slate-800 tracking-tight uppercase">Registo de Aparelho</h2>
+                            <h2 className="text-5xl font-black text-slate-800 tracking-tight uppercase">Registo de Estação de Monitorização</h2>
                             <p className="text-slate-400 font-medium italic">Configuração e Localização de Nova Estação</p>
                         </header>
 
@@ -1096,11 +1129,7 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                 {/* ABA 3: GESTÃO TÉCNICA (AGENDA) */}
                 {subAba === 'agenda' && (
                     <div className="space-y-12 animate-fade-in relative">
-                        {isHelpMode && (
-                            <div className="absolute -top-12 left-0 bg-amber-400 text-amber-950 text-sm font-black p-5 rounded-2xl shadow-xl w-80 z-50 animate-bounce-in border-4 border-white">
-                                📅 <strong>Agenda Técnica:</strong> Esta é a lista de tarefas da tua equipa. Aqui encontras as boias que precisam de calibração, troca de bateria ou manutenção preventiva.
-                            </div>
-                        )}
+                        {isHelpMode && <HelpPin text="📅 Agenda Técnica: Esta é a lista de tarefas da tua equipa. Aqui encontras as boias que precisam de calibração, troca de bateria ou manutenção preventiva." className="absolute top-4 left-4" position="right" />}
                         {(() => {
                             const missions = [];
                             
@@ -1544,11 +1573,7 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                 {/* ABA 4: HUB DE REDE (INFRAESTRUTURA) */}
                 {subAba === 'rede' && (
                     <div className="space-y-12 animate-fade-in relative">
-                        {isHelpMode && (
-                            <div className="absolute -top-12 right-0 bg-amber-400 text-amber-950 text-xs font-black p-4 rounded-2xl shadow-xl w-72 z-50 animate-bounce-in border-4 border-white">
-                                📡 <strong>Hub de Rede:</strong> Aqui geres as antenas (Gateways) que recebem os dados das boias. Se uma boia estiver fora do círculo verde, pode perder o sinal!
-                            </div>
-                        )}
+                        {isHelpMode && <HelpPin text="📡 Torres de Comunicação: Aqui geres as antenas que recebem os dados das boias. Se uma boia estiver fora do círculo verde, pode perder o sinal!" className="absolute top-4 right-4" position="left" />}
                         {/* Alerta de Descoberta de Gateway */}
                         {gateways.some(gw => gw.estado === 'pendente') && (
                             <section className="mx-4 bg-emerald-50 border-2 border-emerald-200 p-6 rounded-[2rem] shadow-lg shadow-emerald-200/20 flex flex-col md:flex-row items-center justify-between gap-6">
@@ -1583,8 +1608,8 @@ export default function GestaoEquipamentos({ isHelpMode }) {
 
                         <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-4">
                             <div>
-                                <h2 className="text-5xl font-black text-slate-800 tracking-tight uppercase leading-none">Hub de Rede</h2>
-                                <p className="text-slate-400 font-medium italic text-lg mt-2">Gestão de Gateways LoRaWAN e Topologia de Cobertura</p>
+                                <h2 className="text-5xl font-black text-slate-800 tracking-tight uppercase leading-none">Torres de Comunicação</h2>
+                                <p className="text-slate-400 font-medium italic text-lg mt-2">Gestão de Antenas e Topologia de Cobertura de Sinal</p>
                             </div>
                         </header>
 
@@ -1595,7 +1620,7 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                                             <section className={`${cardClass} p-10 space-y-8 h-fit`}>
                                                 <div className="flex items-center gap-4 border-b-4 border-emerald-500 pb-2">
                                                     <span className="text-3xl">📡</span>
-                                                    <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Registar Gateway</h3>
+                                                    <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Registar Torre</h3>
                                                 </div>
                                                 <form onSubmit={handleCriarGateway} className="space-y-6">
                                                     <div>

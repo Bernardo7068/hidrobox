@@ -16,8 +16,8 @@ export default function Login({ onLogin }) {
             const res = await api.post('/login', { email, password });
             
             if (res.data.sucesso) {
-                localStorage.setItem('token', res.data.token);
-                localStorage.setItem('user', JSON.stringify(res.data.user));
+                sessionStorage.setItem('token', res.data.token);
+                sessionStorage.setItem('user', JSON.stringify(res.data.user));
                 onLogin(res.data.user);
             }
         } catch (error) {

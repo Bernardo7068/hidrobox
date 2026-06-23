@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import api from '../api';
 import Tooltip from './Tooltip';
+import HelpPin from './HelpPin';
 
 export default function PainelSuperAdmin({ onAbaChange, isHelpMode }) {
-    const userLogado = JSON.parse(localStorage.getItem('user') || '{}');
+    const userLogado = JSON.parse(sessionStorage.getItem('user') || '{}');
     const [empresas, setEmpresas] = useState([]);
     const [usuarios, setUsuarios] = useState([]);
     const [tiposSensor, setTiposSensor] = useState([]);
@@ -309,11 +310,7 @@ export default function PainelSuperAdmin({ onAbaChange, isHelpMode }) {
                 
                 {/* Lado Esquerdo: Listagens */}
                 <div className="lg:col-span-8 space-y-10 relative">
-                    {isHelpMode && (
-                        <div className="absolute -top-16 left-0 bg-amber-400 text-amber-950 text-sm font-black p-5 rounded-2xl shadow-xl w-80 z-50 animate-bounce-in border-4 border-white">
-                            🏢 <strong>Gestão de Clientes:</strong> Aqui controlas toda a base de clientes do HidroBox. Podes adicionar novas organizações, gerir os seus recursos ou removê-las completamente do sistema.
-                        </div>
-                    )}
+                    {isHelpMode && <HelpPin text="🏢 Gestão de Clientes: Aqui controlas toda a base de clientes do HidroBox. Podes adicionar novas organizações, gerir os seus recursos ou removê-las completamente do sistema." className="absolute -top-4 left-4" position="right" />}
                     {abaAtiva === 'entidades' ? (
                         entidadeSelecionada ? (
                             <ExploradorTecnico 
@@ -399,11 +396,7 @@ export default function PainelSuperAdmin({ onAbaChange, isHelpMode }) {
                         )
                     ) : abaAtiva === 'sensores' ? (
                         <section className="space-y-6 relative">
-                            {isHelpMode && (
-                                <div className="absolute -top-16 right-0 bg-amber-400 text-amber-950 text-sm font-black p-5 rounded-2xl shadow-xl w-80 z-50 animate-bounce-in border-4 border-white">
-                                    🧪 <strong>Catálogo de Sensores:</strong> Adiciona aqui novas métricas (ex: Salinidade, Turbidez). Elas ficarão imediatamente disponíveis em todo o sistema.
-                                </div>
-                            )}
+                            {isHelpMode && <HelpPin text="🧪 Catálogo de Sensores: Adiciona aqui novas métricas (ex: Salinidade, Turbidez). Elas ficarão imediatamente disponíveis em todo o sistema." className="absolute -top-4 right-4" position="left" />}
                             <div className="flex items-center justify-between px-2">
                                 <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Catálogo de Sensores</h2>
                                 <span className="px-4 py-1.5 bg-slate-100 rounded-full text-xs font-black text-slate-500 uppercase">{tiposSensor.length} Tipos</span>
@@ -470,11 +463,7 @@ export default function PainelSuperAdmin({ onAbaChange, isHelpMode }) {
                         </section>
                     ) : abaAtiva === 'utilizadores' && !editandoUser ? (
                         <section className="space-y-6 relative">
-                            {isHelpMode && (
-                                <div className="absolute -top-16 right-0 bg-amber-400 text-amber-950 text-sm font-black p-5 rounded-2xl shadow-xl w-80 z-50 animate-bounce-in border-4 border-white">
-                                    👥 <strong>Utilizadores:</strong> Gere quem tem acesso ao sistema. Podes criar novos acessos ou alterar as permissões e empresas de cada um.
-                                </div>
-                            )}
+                            {isHelpMode && <HelpPin text="👥 Utilizadores: Gere quem tem acesso ao sistema. Podes criar novos acessos ou alterar as permissões e empresas de cada um." className="absolute -top-4 right-4" position="left" />}
                             <div className="flex items-center justify-between px-2">
                                 <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Utilizadores Ativos</h2>
                                 <span className="px-4 py-1.5 bg-slate-100 rounded-full text-xs font-black text-slate-500 uppercase">{usuarios.length} Contas</span>
