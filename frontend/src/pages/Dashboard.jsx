@@ -152,7 +152,6 @@ export default function Dashboard({ onLogout }) {
 
     socket.on('connect', () => {
       console.log('[Dashboard] Ligado ao WebSocket em tempo real:', socket.id);
-      // O super_admin pode entrar numa sala global ou todas as empresas (vamos criar uma sala super_admin para ele)
       if (user.role === 'super_admin') {
         socket.emit('join-company', 'super_admin');
       } else if (user.empresa_id) {
@@ -170,12 +169,8 @@ export default function Dashboard({ onLogout }) {
       console.log('⚠️ Novo alerta recebido (Tempo Real):', data);
       carregarDadosGlobais();
     });
-
-    // 3. Fallback de segurança (de 8s passa para 60s já que temos WebSockets agora)
-    const intervalo = setInterval(carregarDadosGlobais, 60000);
     
     return () => {
-      clearInterval(intervalo);
       socket.disconnect(); // Desligar quando sair do Dashboard
     };
   }, []);

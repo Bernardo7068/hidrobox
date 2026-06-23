@@ -8,6 +8,12 @@ import api from '../api';
 export default function VisaoGeral({ boias = [], alertas = [], setAbaAtiva, isHelpMode }) {
   const [zonas, setZonas] = useState([]);
   const boiasPendentes = boias.filter(b => b.estado === 'pendente');
+  
+  // Deteta boias já adicionadas mas com configuração VLE ou sensores por terminar na Agenda Técnica
+  const boiasIncompletas = boias.filter(b => {
+    if (b.estado === 'pendente') return false;
+    return (b.limites || []).some(lim => !lim.is_configurado || lim.valor_minimo == null || lim.valor_maximo == null);
+  });
 
   useEffect(() => {
     const carregarZonas = async () => {
@@ -45,6 +51,24 @@ export default function VisaoGeral({ boias = [], alertas = [], setAbaAtiva, isHe
             className="bg-amber-950 text-white px-8 py-4 rounded-xl font-black text-xs uppercase tracking-[0.2em] hover:bg-black transition-colors shadow-xl"
           >
             Configurar Aparelho
+          </button>
+        </section>
+      )}
+
+      {/* Alerta Discreto de Configurações Pendentes (VLE / Sensores) */}
+      {boiasIncompletas.length > 0 && (
+        <section className="mx-4 bg-white border border-slate-200 px-6 py-3 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
+          <div className="flex items-center gap-3 text-slate-500">
+            <span className="text-lg">⚙️</span>
+            <p className="text-xs font-bold uppercase tracking-widest">
+              Existem {boiasIncompletas.length} equipamentos com calibrações de sensores ou <span className="font-black text-slate-800">valores VLE pendentes</span>.
+            </p>
+          </div>
+          <button 
+            onClick={() => setAbaAtiva('equipamentos')} 
+            className="text-[10px] font-black text-slate-400 bg-slate-50 px-4 py-2 rounded-lg uppercase tracking-widest hover:text-blue-600 hover:bg-blue-50 transition-colors"
+          >
+            Ver na Agenda Técnica ➔
           </button>
         </section>
       )}

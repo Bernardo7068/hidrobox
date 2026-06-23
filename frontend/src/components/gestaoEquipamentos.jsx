@@ -143,6 +143,7 @@ export default function GestaoEquipamentos({ isHelpMode }) {
     const [adicionandoSensor, setAdicionandoSensor] = useState(false);
     const [formEditBoia, setFormEditBoia] = useState({});
     const [limitesEditando, setLimitesEditando] = useState({});
+    const [tick, setTick] = useState(0);
 
     // ESTADOS PARA O RELATÓRIO DE MANUTENÇÃO
     const [mostrarModalManutencao, setMostrarTourManutencao] = useState(false);
@@ -242,6 +243,8 @@ export default function GestaoEquipamentos({ isHelpMode }) {
         }
     };
 
+    // Removida lógica antiga de pollingTimeMs
+
     useEffect(() => { 
         carregarDadosIniciais(); 
         
@@ -264,15 +267,18 @@ export default function GestaoEquipamentos({ isHelpMode }) {
             if (subAba === 'inventario') carregarDadosIniciais();
         });
 
-        const intervalo = setInterval(() => {
-            if (subAba === 'inventario') carregarDadosIniciais();
-        }, 60000); // Fallback de 60s
-        
         return () => {
-            clearInterval(intervalo);
             socket.disconnect();
         };
     }, [subAba]);
+
+    useEffect(() => {
+        // Apenas um tick visual a cada 60s para manter os tempos e "Sinal Perdido" precisos sem consumir rede
+        const timer = setInterval(() => {
+            setTick(t => t + 1);
+        }, 60000);
+        return () => clearInterval(timer);
+    }, []);
 
     const carregarDadosIniciais = async () => {
         try {
@@ -508,6 +514,12 @@ export default function GestaoEquipamentos({ isHelpMode }) {
         ...zona, instalacoes: boias.filter(b => b.zona_id === zona.id)
     }));
 
+    // Deteta boias ativas mas com configuração VLE ou sensores pendente
+    const boiasIncompletas = boias.filter(b => {
+        if (b.estado === 'pendente') return false;
+        return (b.limites || []).some(lim => !lim.is_configurado || lim.valor_minimo == null || lim.valor_maximo == null);
+    });
+
     // Estilos comuns
     const cardClass = "bg-white rounded-[2rem] shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden";
     const labelClass = "text-sm font-black uppercase tracking-widest text-slate-400 mb-2 block";
@@ -560,6 +572,24 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                             Configurar Estação
                         </button>
                     </div>
+                </section>
+            )}
+
+            {/* Alerta Discreto de Configurações Pendentes (VLE / Sensores) */}
+            {boiasIncompletas.length > 0 && (
+                <section className="mb-8 bg-white border border-slate-200 px-6 py-3 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
+                    <div className="flex items-center gap-3 text-slate-500">
+                        <span className="text-lg">⚙️</span>
+                        <p className="text-xs font-bold uppercase tracking-widest">
+                            Existem {boiasIncompletas.length} equipamentos com calibrações de sensores ou <span className="font-black text-slate-800">valores VLE pendentes</span>.
+                        </p>
+                    </div>
+                    <button 
+                        onClick={() => setSubAba('agenda')} 
+                        className="text-[10px] font-black text-slate-400 bg-slate-50 px-4 py-2 rounded-lg uppercase tracking-widest hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                    >
+                        Abrir Agenda Técnica ➔
+                    </button>
                 </section>
             )}
 
@@ -648,10 +678,31 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                                         const IDsLimites = boia.limites ? boia.limites.map(l => l.tipo_sensor_id) : [];
                                         const IDsSensoresDetetados = [...new Set([...IDsLeituras, ...IDsLimites])];
 
-                                        // Lógica de "Batimento Cardíaco" (Heartbeat) - 5 minutos de tolerância
-                                        const ultimaMensagem = boia.updated_at ? new Date(boia.updated_at) : new Date(boia.created_at);
+                                        // Lógica de "Batimento Cardíaco" (Heartbeat) - Ter em conta o DeepSleep e Timezones
+                                        let ultimaMensagem = new Date();
+                                        if (boia.leituras && boia.leituras.length > 0) {
+                                            const tempos = boia.leituras.map(l => {
+                                                const dh = l.data_hora;
+                                                const parseable = dh && typeof dh === 'string' && !dh.includes('T') ? dh.replace(' ', 'T') + 'Z' : dh;
+                                                return new Date(parseable).getTime();
+                                            }).filter(t => !isNaN(t));
+                                            if (tempos.length > 0) {
+                                                ultimaMensagem = new Date(Math.max(...tempos));
+                                            }
+                                        } else {
+                                            const rawDate = boia.updated_at || boia.created_at;
+                                            if (rawDate) {
+                                                const dataParse = typeof rawDate === 'string' && !rawDate.includes('T') 
+                                                    ? rawDate.replace(' ', 'T') + 'Z' 
+                                                    : rawDate;
+                                                ultimaMensagem = new Date(dataParse);
+                                            }
+                                        }
                                         const minutosDesdeUltima = (new Date() - ultimaMensagem) / (1000 * 60);
-                                        const isOffline = minutosDesdeUltima > 5 && boia.estado === 'ativa';
+                                        
+                                        // O limite offline passa a ser o intervalo de deepsleep + 3 minutos de margem
+                                        const intervaloMinutos = boia.intervalo_segundos ? (boia.intervalo_segundos / 60) : 5;
+                                        const isOffline = minutosDesdeUltima > (intervaloMinutos + 3) && boia.estado === 'ativa';
 
                                         return (
                                             <div 
@@ -1854,34 +1905,54 @@ export default function GestaoEquipamentos({ isHelpMode }) {
 
                                                 {/* Lista de Boias Vinculadas (NOVO) */}
                                                 <div className="space-y-2 max-h-40 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-100">
-                                                    {boias.filter(b => b.mac_gateway === gw.mac_gateway).map(b => (
-                                                        <div key={b.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100 group/item">
-                                                            <div className="flex items-center gap-3">
-                                                            <span className="text-2xl">🛰️</span>
-                                                            <div>
-                                                                <span className="text-base font-black text-slate-700 block leading-none">{b.nome}</span>
-                                                                <span className="text-sm font-bold text-slate-400 uppercase tracking-tight mt-1">{b.mac_boia}</span>
-                                                            </div>
-                                                            </div>
-                                                            <Tooltip text={`Sinal de rede: ${!b.rssi_ultimo ? 'Sem dados' : b.rssi_ultimo + ' dBm'}`} position="left">
-                                                                <div className="flex items-center gap-3 cursor-help">
-                                                                <span className={`text-sm font-black ${
-                                                                    !b.rssi_ultimo ? 'text-slate-300' :
-                                                                    b.rssi_ultimo > -90 ? 'text-emerald-500' :
-                                                                    b.rssi_ultimo > -115 ? 'text-amber-500' : 'text-rose-500'
-                                                                }`}>
-                                                                    {b.rssi_ultimo ? `${b.rssi_ultimo} dBm` : '---'}
-                                                                </span>
-                                                                    <div className="flex gap-0.5 items-end h-2.5">
-                                                                        {[1, 2, 3].map(bar => {
-                                                                            const strength = b.rssi_ultimo ? (b.rssi_ultimo + 140) / 110 : 0;
-                                                                            return <div key={bar} className={`w-0.5 rounded-full ${strength > (bar/3) ? (strength > 0.6 ? 'bg-emerald-400' : 'bg-amber-400') : 'bg-slate-200'}`} style={{ height: `${bar * 33}%` }}></div>
-                                                                        })}
-                                                                    </div>
+                                                    {boias.filter(b => b.mac_gateway === gw.mac_gateway).map(b => {
+                                                        let ultimaMensagem = new Date();
+                                                        if (b.leituras && b.leituras.length > 0) {
+                                                            const tempos = b.leituras.map(l => {
+                                                                const dh = l.data_hora;
+                                                                const parseable = dh && typeof dh === 'string' && !dh.includes('T') ? dh.replace(' ', 'T') + 'Z' : dh;
+                                                                return new Date(parseable).getTime();
+                                                            }).filter(t => !isNaN(t));
+                                                            if (tempos.length > 0) ultimaMensagem = new Date(Math.max(...tempos));
+                                                        } else {
+                                                            const rawDate = b.updated_at || b.created_at;
+                                                            if (rawDate) {
+                                                                const dataParse = typeof rawDate === 'string' && !rawDate.includes('T') ? rawDate.replace(' ', 'T') + 'Z' : rawDate;
+                                                                ultimaMensagem = new Date(dataParse);
+                                                            }
+                                                        }
+                                                        const minDesde = (new Date() - ultimaMensagem) / (1000 * 60);
+                                                        const isOffline = minDesde > ((b.intervalo_segundos ? b.intervalo_segundos / 60 : 5) + 3) && b.estado === 'ativa';
+
+                                                        return (
+                                                            <div key={b.id} className={`flex items-center justify-between p-3 rounded-xl border group/item ${isOffline ? 'bg-slate-100 border-slate-200 opacity-60' : 'bg-slate-50 border-slate-100'}`}>
+                                                                <div className="flex items-center gap-3">
+                                                                <span className={`text-2xl ${isOffline ? 'grayscale' : ''}`}>🛰️</span>
+                                                                <div>
+                                                                    <span className="text-base font-black text-slate-700 block leading-none">{b.nome} {isOffline && <span className="text-[10px] text-rose-500 uppercase ml-2 tracking-widest">Offline</span>}</span>
+                                                                    <span className="text-sm font-bold text-slate-400 uppercase tracking-tight mt-1">{b.mac_boia}</span>
                                                                 </div>
-                                                            </Tooltip>
-                                                        </div>
-                                                    ))}
+                                                                </div>
+                                                                <Tooltip text={`Sinal de rede: ${isOffline ? 'Sinal Perdido' : !b.rssi_ultimo ? 'Sem dados' : b.rssi_ultimo + ' dBm'}`} position="left">
+                                                                    <div className="flex items-center gap-3 cursor-help">
+                                                                    <span className={`text-sm font-black ${
+                                                                        isOffline || !b.rssi_ultimo ? 'text-slate-400' :
+                                                                        b.rssi_ultimo > -90 ? 'text-emerald-500' :
+                                                                        b.rssi_ultimo > -115 ? 'text-amber-500' : 'text-rose-500'
+                                                                    }`}>
+                                                                        {isOffline ? 'Perdido' : b.rssi_ultimo ? `${b.rssi_ultimo} dBm` : '---'}
+                                                                    </span>
+                                                                        <div className={`flex gap-0.5 items-end h-2.5 ${isOffline ? 'grayscale opacity-50' : ''}`}>
+                                                                            {[1, 2, 3].map(bar => {
+                                                                                const strength = b.rssi_ultimo ? (b.rssi_ultimo + 140) / 110 : 0;
+                                                                                return <div key={bar} className={`w-0.5 rounded-full ${strength > (bar/3) ? (strength > 0.6 ? 'bg-emerald-400' : 'bg-amber-400') : 'bg-slate-200'}`} style={{ height: `${bar * 33}%` }}></div>
+                                                                            })}
+                                                                        </div>
+                                                                    </div>
+                                                                </Tooltip>
+                                                            </div>
+                                                        );
+                                                    })}
                                                     {boias.filter(b => b.mac_gateway === gw.mac_gateway).length === 0 && (
                                                         <div className="text-[10px] font-bold text-slate-300 italic text-center py-2 uppercase">Nenhuma boia vinculada</div>
                                                     )}

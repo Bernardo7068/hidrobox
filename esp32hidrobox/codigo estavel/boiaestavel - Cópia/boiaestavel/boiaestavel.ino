@@ -8,6 +8,15 @@
 #include "DFRobot_ESP_PH.h"
 #include "mbedtls/aes.h" // <-- ADICIONADO: Biblioteca nativa de criptografia do ESP32
 
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET    -1
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
 // --- CONFIGURAÇÃO DE PINOS ---
 #define PINO_TEMP 14
 #define PINO_TDS  36
@@ -33,6 +42,11 @@ DallasTemperature sensors(&oneWire);
 DFRobot_ESP_EC ec;
 DFRobot_ESP_PH ph;
 
+    // ==========================================
+    // Memória RTC Permanente
+    // ==========================================
+    RTC_DATA_ATTR int intervalo_sono = 300;
+
 // Função auxiliar para processar a encriptação AES-128 por blocos
 void encriptarAES(const uint8_t* plainText, uint8_t* output, int len) {
    mbedtls_aes_context aes;
@@ -48,6 +62,16 @@ void encriptarAES(const uint8_t* plainText, uint8_t* output, int len) {
 void setup() {
    Serial.begin(115200);
    delay(2000); 
+
+   // Inicializar OLED
+   if(display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+     display.clearDisplay();
+     display.setTextSize(1);
+     display.setTextColor(SSD1306_WHITE);
+     display.setCursor(0,0);
+     display.println("Boia Iniciada");
+     display.display();
+   }
 
    Serial.println("\n==================================");
    Serial.println("   A INICIAR FLUXO DA BOIA AES    ");
@@ -78,6 +102,11 @@ void setup() {
 
 void loop() {
    Serial.println("\nA processar novas leituras...");
+
+   display.clearDisplay();
+   display.setCursor(0,0);
+   display.println("A ler sensores...");
+   display.display();
 
    // --- LEITURA DOS SENSORES ---
    sensors.requestTemperatures();
@@ -127,9 +156,51 @@ void loop() {
    LoRa.write(encryptedData, paddedLen); // Enviamos os bytes criptografados e não texto direto
    LoRa.endPacket();
 
-   Serial.print(">> Pacote trancado enviado com sucesso! Tamanho: ");
-   Serial.print(paddedLen);
-   Serial.println(" bytes.");
+   display.println("LoRa Enviado!");
+   display.display();
 
-   delay(10000 + random(0, 5000));
-}
+   Serial.print(">> Pacote trancado enviado com sucesso");
+   //Serial.print(paddedLen);
+   //Serial.println(" bytes.");
+//
+   //delay(10000 + random(0, 5000));
+       // ==========================================
+       // NOVA JANELA DE ESCUTA (DOWNLINK)
+       // ==========================================
+       Serial.println("\nÀ escuta do Gateway (5 segs)...");
+       long startTime = millis();
+       bool recebeuResposta = false;
+
+       while(millis() - startTime < 5000) {
+           int packetSize = LoRa.parsePacket();
+           if (packetSize) {
+               String respostaGateway = "";
+               while (LoRa.available()) {
+                   respostaGateway += (char)LoRa.read();
+               }
+               int novoIntervalo = respostaGateway.toInt();
+               if (novoIntervalo >= 60) {
+                   intervalo_sono = novoIntervalo;
+                   Serial.println(">> Novo tempo recebido: " + String(intervalo_sono) + "s");
+               }
+               recebeuResposta = true;
+               break;
+           }
+       }
+
+       if(!recebeuResposta) {
+           Serial.println(">> Sem resposta. A manter configuração.");
+       }
+
+       // ==========================================
+       // MODO HIBERNAÇÃO (DEEP SLEEP)
+       // ==========================================
+       uint64_t micro_segundos = intervalo_sono * 1000000ULL;
+       Serial.printf("\nA entrar em Deep Sleep por %d minutos. Ate logo!\n", intervalo_sono / 60);
+
+       display.println("Deep Sleep...");
+       display.display();
+
+       esp_sleep_enable_timer_wakeup(micro_segundos);
+       esp_deep_sleep_start();
+    }

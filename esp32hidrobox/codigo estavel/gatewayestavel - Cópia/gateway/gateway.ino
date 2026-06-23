@@ -6,10 +6,19 @@
 #include <ArduinoJson.h>
 #include "mbedtls/aes.h" // <-- ADICIONADO: Criptografia nativa do ESP32
 
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET    -1
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
 // --- CONFIGURAÇÕES DE REDE ---
-const char* ssid = "Vodafone-DB65F2";
-const char* password = "jTdz36hn9D";
-const char* serverName = "http://192.168.1.145:8000/api/leituras";
+const char* ssid = "hidrobox";  //Vodafone-DB65F2
+const char* password = "12345678";  //jTdz36hn9D
+const char* serverName = "http://192.168.1.74:8000/api/leituras";
 const char* apiKey = "hidrobox_segredo_2026";
 
 // --- CONFIGURAÇÃO CHAVE AES ---
@@ -41,6 +50,16 @@ void setup() {
     Serial.begin(115200);
     delay(1000);
 
+    // Inicializar OLED
+    if(display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+      display.clearDisplay();
+      display.setTextSize(1);
+      display.setTextColor(SSD1306_WHITE);
+      display.setCursor(0,0);
+      display.println("Gateway Iniciado");
+      display.display();
+    }
+
     pinMode(TCXO_EN, OUTPUT);
     digitalWrite(TCXO_EN, HIGH);
     delay(200);
@@ -52,6 +71,8 @@ void setup() {
       Serial.print(".");
     }
     Serial.println("\nWiFi Conectado!");
+    display.println("WiFi Conectado!");
+    display.display();
     Serial.print("MAC do Gateway: ");
     Serial.println(WiFi.macAddress());
 
@@ -62,6 +83,8 @@ void setup() {
       while(1);
     }
     Serial.println("Gateway HidroBox (AES-128) à escuta...");
+    display.println("LoRa OK. A escuta...");
+    display.display();
 }
 
 void loop() {
@@ -87,6 +110,12 @@ void loop() {
 
       String recebido = String((char*)decrypted);
 
+      display.clearDisplay();
+      display.setCursor(0,0);
+      display.println("Pacote Recebido!");
+      display.print("RSSI: "); display.println(rssi);
+      display.display();
+
       Serial.println("\n--- Nova Mensagem LoRa Protegida ---");
       Serial.print("Sinal (RSSI): "); Serial.print(rssi); Serial.println(" dBm");
       Serial.println("Texto Desencriptado: " + recebido);
@@ -107,7 +136,7 @@ void loop() {
         String turb = recebido.substring(p5 + 1);
 
         // --- MONTAR JSON PARA A API ---
-        StaticJsonDocument<1024> doc;
+        JsonDocument doc;
         doc["mac"] = boiaMac;
         doc["gateway"] = WiFi.macAddress();
         doc["rssi"] = rssi;             
@@ -141,8 +170,36 @@ void loop() {
 
           if (httpResponseCode == 201 || httpResponseCode == 200) {
             Serial.println("[API] SUCESSO! Telemetria encriptada enviada e guardada.");
-          } else {
-            Serial.print("[API] ERRO ");
+            display.println("API OK!");
+            display.display();
+
+                            // ==========================================
+                // LER A API E ENVIAR ORDEM (DOWNLINK)
+                // ==========================================
+                String respostaApi = http.getString();
+                JsonDocument docRes;
+
+                if (deserializeJson(docRes, respostaApi) == DeserializationError::Ok) {
+                   // A API do Laravel responde sempre com o objeto "configuracao"
+                   if (docRes.containsKey("configuracao")) {
+                      int novoIntervalo = docRes["configuracao"]["intervalo_segundos"];
+
+                      // O Gateway muda de "Ouvinte" para "Emissor"
+                      LoRa.beginPacket();
+                      LoRa.print(novoIntervalo); // Envia só o número para poupar bateria na boia
+                      LoRa.endPacket();
+
+                      // IMPORTANTE: Obriga o Gateway a voltar a ouvir o ar imediatamente!
+                      LoRa.receive();
+
+                      Serial.printf(">> Downlink enviado para a boia: Dormir por %d segundos.\n",
+  novoIntervalo);
+                   }
+                }/////////
+           } else {
+             Serial.print("[API] ERRO ");
+             display.println("API ERRO!");
+             display.display();
             Serial.print(httpResponseCode);
             Serial.println(": " + http.getString());
           }

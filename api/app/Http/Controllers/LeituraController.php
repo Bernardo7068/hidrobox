@@ -95,6 +95,8 @@ class LeituraController extends Controller
             if (!empty($updateData)) {
                 $boia->update($updateData);
             }
+            // Força a atualização da data/hora (Heartbeat) mesmo que a bateria/rssi não mudem
+            $boia->touch();
 
             foreach ($validated['leituras'] as $item) {
                 // 1. Verificação de Integridade de Hardware
