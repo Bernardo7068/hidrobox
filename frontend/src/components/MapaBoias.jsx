@@ -1,4 +1,4 @@
-import { MapContainer, TileLayer, Marker, Popup, Circle } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Circle, Polyline } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -31,6 +31,22 @@ const towerIcon = L.divIcon({
     iconAnchor: [24, 68]
 });
 
+// Função para calcular distância entre duas coordenadas
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371e3;
+    const φ1 = lat1 * Math.PI / 180;
+    const φ2 = lat2 * Math.PI / 180;
+    const Δφ = (lat2 - lat1) * Math.PI / 180;
+    const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+        Math.cos(φ1) * Math.cos(φ2) *
+        Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return R * c;
+};
+
 export default function MapaBoias({ boias = [], gateways = [] }) {
     // Centro inicial do mapa (Rio Lis, Leiria como padrão)
     const centroPadrao = [39.7436, -8.8071];
@@ -39,23 +55,11 @@ export default function MapaBoias({ boias = [], gateways = [] }) {
     const boiaComGPS = boias.find(b => b.latitude && b.longitude);
     const center = boiaComGPS ? [parseFloat(boiaComGPS.latitude), parseFloat(boiaComGPS.longitude)] : centroPadrao;
 
-    const getSensorInfo = (tipoId) => {
-        const info = {
-            1: { nome: 'Oxigénio', icon: '🫧', unidade: 'mg/L' },
-            2: { nome: 'Temperatura', icon: '🌡️', unidade: 'ºC' },
-            3: { nome: 'Turbidez', icon: '🌫️', unidade: 'NTU' },
-            4: { nome: 'TDS', icon: '🧂', unidade: 'ppm' },
-            5: { nome: 'pH', icon: '⚗️', unidade: 'pH' },
-            6: { nome: 'Condutividade', icon: '⚡', unidade: 'µS/cm' },
-        };
-        return info[tipoId] || { nome: 'Sensor', icon: '📊', unidade: '' };
-    };
-
     return (
-        <div className="bg-white rounded-[2rem] shadow-xl border border-slate-100 overflow-hidden h-[600px] relative group">
+        <div className="bg-white rounded-[2rem] shadow-xl border border-slate-100 overflow-hidden h-[600px] lg:h-[75vh] relative group">
             <div className="absolute top-6 left-6 z-[1000] bg-white/95 backdrop-blur shadow-2xl border border-slate-100 rounded-2xl p-4 pointer-events-none">
                 <h2 className="text-lg font-black text-slate-800 tracking-tight flex items-center gap-2">
-                    <span className="animate-pulse text-blue-500">🔵</span> Monitorização de Georefereciação
+                    <span className="animate-pulse text-blue-500">🔵</span> Monitorização Georreferenciada
                 </h2>
                 <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Infraestrutura Ativa • Rio Lis</p>
             </div>
@@ -72,18 +76,26 @@ export default function MapaBoias({ boias = [], gateways = [] }) {
                 />
 
                 {/* --- DESENHAR GATEWAYS --- */}
-                {gateways.map(gw => (
-                    gw.latitude && gw.longitude && (
+                {gateways.map(gw => {
+                    const connectedBoias = boias.filter(b => b.mac_gateway === gw.mac_gateway).length;
+                    return gw.latitude && gw.longitude && (
                         <div key={`gw-${gw.id}`}>
                             <Marker position={[parseFloat(gw.latitude), parseFloat(gw.longitude)]} icon={towerIcon}>
-                                <Popup minWidth={200}>
+                                <Popup minWidth={220} className="custom-popup">
                                     <div className="p-3 font-black">
                                         <div className="text-blue-600 uppercase text-[10px] tracking-widest mb-1">Gateway LoRaWAN</div>
                                         <div className="text-lg uppercase leading-tight">{gw.nome}</div>
                                         <div className="text-[10px] text-slate-400 font-mono mt-1">{gw.mac_gateway}</div>
-                                        <div className="mt-3 pt-3 border-t border-slate-100 flex justify-between items-center">
-                                            <span className="text-[10px] text-slate-500 uppercase">Alcance Nominal</span>
-                                            <span className="text-xs text-emerald-600">{gw.raio_cobertura}m</span>
+                                        
+                                        <div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3">
+                                            <div className="bg-emerald-50 rounded-lg p-2 text-center">
+                                                <div className="text-[9px] text-emerald-600 uppercase tracking-widest">Alcance</div>
+                                                <div className="text-sm font-black text-emerald-900">{gw.raio_cobertura}m</div>
+                                            </div>
+                                            <div className="bg-blue-50 rounded-lg p-2 text-center">
+                                                <div className="text-[9px] text-blue-600 uppercase tracking-widest">Conexões</div>
+                                                <div className="text-sm font-black text-blue-900">{connectedBoias} Boias</div>
+                                            </div>
                                         </div>
                                     </div>
                                 </Popup>
@@ -94,50 +106,80 @@ export default function MapaBoias({ boias = [], gateways = [] }) {
                                 pathOptions={{ color: '#10b981', fillColor: '#10b981', fillOpacity: 0.05, weight: 1 }}
                             />
                         </div>
-                    )
-                ))}
+                    );
+                })}
 
-                {/* --- DESENHAR BOIAS --- */}
+                {/* --- DESENHAR BOIAS E LINHAS --- */}
                 {boias.map(boia => {
                     if (!boia.latitude || !boia.longitude) return null;
 
-                    return (
-                        <Marker 
-                            key={`boia-${boia.id}`} 
-                            position={[parseFloat(boia.latitude), parseFloat(boia.longitude)]}
-                        >
-                            <Popup minWidth={220} className="custom-popup">
-                                <div className="p-3">
-                                    <div className="flex justify-between items-center mb-1">
-                                        <div className="text-sm font-black text-slate-800 uppercase tracking-tighter leading-none">{boia.nome}</div>
-                                        <div className={`w-2.5 h-2.5 rounded-full ${boia.estado === 'ativa' ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
-                                    </div>
-                                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">
-                                        📍 {boia.localizacao_texto || 'Desconhecido'}
-                                    </div>
-                                    
-                                    <div className="flex gap-2 mb-3">
-                                        <div className="flex-1 bg-slate-50 border border-slate-100 rounded-lg p-2 text-center">
-                                            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Bateria</div>
-                                            <div className="text-sm font-black text-slate-800">{boia.bateria}%</div>
-                                        </div>
-                                        <div className="flex-1 bg-slate-50 border border-slate-100 rounded-lg p-2 text-center">
-                                            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Sinal</div>
-                                            <div className="text-sm font-black text-slate-800">{boia.rssi_ultimo ? `${boia.rssi_ultimo} dBm` : '---'}</div>
-                                        </div>
-                                    </div>
+                    const meuGateway = gateways.find(gw => gw.mac_gateway === boia.mac_gateway);
+                    let dist = null;
+                    let foraDeAlcance = false;
+                    
+                    if (meuGateway && meuGateway.latitude && meuGateway.longitude) {
+                        dist = calculateDistance(boia.latitude, boia.longitude, meuGateway.latitude, meuGateway.longitude);
+                        foraDeAlcance = dist > meuGateway.raio_cobertura;
+                    }
 
-                                    <a 
-                                        href={`https://www.google.com/maps?q=${boia.latitude},${boia.longitude}`}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="block text-center bg-indigo-600 text-white py-2 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-colors"
-                                    >
-                                        Navegar GPS
-                                    </a>
-                                </div>
-                            </Popup>
-                        </Marker>
+                    return (
+                        <div key={`boia-container-${boia.id}`}>
+                            <Marker position={[parseFloat(boia.latitude), parseFloat(boia.longitude)]}>
+                                <Popup minWidth={240} className="custom-popup">
+                                    <div className="p-3">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <div className="text-sm font-black text-slate-800 uppercase tracking-tighter leading-none">{boia.nome}</div>
+                                            <div className={`w-2.5 h-2.5 rounded-full animate-pulse ${boia.estado === 'ativa' ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
+                                        </div>
+                                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">
+                                            📍 {boia.localizacao_texto || 'Localização não definida'}
+                                        </div>
+                                        
+                                        <div className="flex gap-2 mb-3">
+                                            <div className="flex-1 bg-slate-50 border border-slate-100 rounded-lg p-2 text-center">
+                                                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Bateria</div>
+                                                <div className={`text-sm font-black ${boia.bateria < 20 ? 'text-rose-600' : 'text-slate-800'}`}>{boia.bateria}%</div>
+                                            </div>
+                                            <div className="flex-1 bg-slate-50 border border-slate-100 rounded-lg p-2 text-center">
+                                                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Sinal</div>
+                                                <div className={`text-sm font-black ${foraDeAlcance ? 'text-rose-600' : 'text-slate-800'}`}>{boia.rssi_ultimo ? `${boia.rssi_ultimo} dBm` : '---'}</div>
+                                            </div>
+                                        </div>
+
+                                        {meuGateway && (
+                                            <div className={`mb-3 p-2 rounded-lg text-center border text-[10px] uppercase font-black tracking-widest ${foraDeAlcance ? 'bg-rose-50 border-rose-200 text-rose-600' : 'bg-emerald-50 border-emerald-100 text-emerald-600'}`}>
+                                                {foraDeAlcance ? '⚠️ Fora de Alcance' : '✓ Conexão Estável'} ({Math.round(dist)}m)
+                                            </div>
+                                        )}
+
+                                        <a 
+                                            href={`https://www.google.com/maps?q=${boia.latitude},${boia.longitude}`}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="block text-center bg-indigo-600 text-white py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-colors shadow-md"
+                                        >
+                                            Navegar GPS 🗺️
+                                        </a>
+                                    </div>
+                                </Popup>
+                            </Marker>
+                            
+                            {/* LINHA DE CONEXÃO COM O GATEWAY */}
+                            {meuGateway && meuGateway.latitude && (
+                                <Polyline 
+                                    positions={[
+                                        [boia.latitude, boia.longitude],
+                                        [meuGateway.latitude, meuGateway.longitude]
+                                    ]}
+                                    pathOptions={{ 
+                                        color: foraDeAlcance ? '#f43f5e' : '#3b82f6', 
+                                        weight: 2, 
+                                        dashArray: '10, 10',
+                                        opacity: 0.6 
+                                    }}
+                                />
+                            )}
+                        </div>
                     );
                 })}
             </MapContainer>

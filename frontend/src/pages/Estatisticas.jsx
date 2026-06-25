@@ -9,6 +9,7 @@ import HelpPin from '../components/HelpPin';
 export default function Estatisticas({ isHelpMode }) {
   const user = JSON.parse(sessionStorage.getItem('user') || '{}');
   const isAdmin = ['super_admin', 'admin_empresa'].includes(user.role);
+  const canExportPdf = ['super_admin', 'admin_empresa', 'tecnico_empresa'].includes(user.role);
 
   const [boias, setBoias] = useState([]);
   const [filtro, setFiltro] = useState({ boia_id: '', data_inicio: '', data_fim: '' });
@@ -37,7 +38,7 @@ export default function Estatisticas({ isHelpMode }) {
   };
 
   const exportarPDF = async () => {
-    if (!isAdmin) return;
+    if (!canExportPdf) return;
     try {
       const params = new URLSearchParams(filtro);
       const res = await api.get(`/exportar-pdf?${params.toString()}`, { responseType: 'blob' });
@@ -80,13 +81,13 @@ export default function Estatisticas({ isHelpMode }) {
         </div>
         <div className="flex gap-4 relative z-10">
           <button 
-            disabled={!isAdmin || loading}
+            disabled={!canExportPdf || loading}
             onClick={exportarPDF}
             className={`px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-xl flex items-center gap-3 ${
-              isAdmin && !loading ? 'bg-blue-600 hover:bg-blue-500 hover:scale-105 hover:shadow-blue-500/50' : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+              canExportPdf && !loading ? 'bg-blue-600 hover:bg-blue-500 hover:scale-105 hover:shadow-blue-500/50' : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
             }`}
           >
-            {loading ? 'A carregar...' : isAdmin ? '📄 Gerar Relatório PDF' : '🔒 PDF (Acesso Restrito)'}
+            {loading ? 'A carregar...' : canExportPdf ? '📄 Gerar Relatório PDF' : '🔒 PDF (Acesso Restrito)'}
           </button>
         </div>
       </header>
@@ -139,20 +140,20 @@ export default function Estatisticas({ isHelpMode }) {
           <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
           <p className="text-slate-400 font-black uppercase tracking-[0.3em] text-sm animate-pulse">A calcular estatísticas globais...</p>
         </div>
-      ) : dados.geral.length === 0 ? (
-        /* ESTADO VAZIO BEM DESENHADO */
-        <div className="bg-white border border-slate-100 p-20 rounded-[3rem] shadow-xl text-center space-y-6 flex flex-col items-center">
-            <div className="w-32 h-32 bg-slate-50 rounded-full flex items-center justify-center text-6xl shadow-inner mb-4">
-                🏜️
-            </div>
-            <h3 className="text-3xl font-black text-slate-800 uppercase tracking-tight">Sem Dados Registados</h3>
-            <p className="text-slate-400 font-medium max-w-md">Não foram encontradas leituras de sensores para o período ou boia selecionada. Tenta alargar o intervalo de datas ou verifica se a estação esteve ativa.</p>
-        </div>
       ) : (
-        /* CONTEÚDO PRINCIPAL (GRÁFICOS E TABELAS) */
         <div className="space-y-12">
-            
-            {/* LINHA DE KPIs (Novidade Visual) */}
+            {dados.geral.length === 0 ? (
+                /* ESTADO VAZIO BEM DESENHADO */
+                <div className="bg-white border border-slate-100 p-20 rounded-[3rem] shadow-xl text-center space-y-6 flex flex-col items-center">
+                    <div className="w-32 h-32 bg-slate-50 rounded-full flex items-center justify-center text-6xl shadow-inner mb-4">
+                        🏜️
+                    </div>
+                    <h3 className="text-3xl font-black text-slate-800 uppercase tracking-tight">Sem Leituras Registadas</h3>
+                    <p className="text-slate-400 font-medium max-w-md">Não foram encontradas leituras de sensores para o período selecionado.</p>
+                </div>
+            ) : (
+                <div className="space-y-12">
+                    {/* LINHA DE KPIs (Novidade Visual) */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="bg-white p-8 rounded-[2rem] shadow-xl shadow-slate-200/50 border border-slate-100 flex items-center justify-between group hover:border-blue-300 transition-colors cursor-default">
                     <div>
@@ -317,9 +318,82 @@ export default function Estatisticas({ isHelpMode }) {
                         </table>
                     </div>
                 </div>
+                </div>
+                </div>
+            )}
+                
+                {/* HISTÓRICO DE MANUTENÇÕES */}
+                {dados.manutencoes && dados.manutencoes.length > 0 && (
+                    <div className="xl:col-span-2 bg-slate-50 rounded-[3rem] p-10 shadow-inner border border-slate-200 mt-10">
+                        <div className="flex items-center gap-4 mb-8">
+                            <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center text-2xl shadow-sm">
+                                🛠️
+                            </div>
+                            <div>
+                                <h3 className="text-2xl font-black uppercase tracking-tight text-slate-800">Histórico de Intervenções</h3>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Registo de manutenções no período selecionado</p>
+                            </div>
+                        </div>
 
+                        <div className="space-y-4">
+                            {dados.manutencoes.map((manut, idx) => {
+                                const checklistLabels = {
+                                    casco: 'Casco Limpo (Algas)',
+                                    sensores: 'Sensores Lavados',
+                                    vedacao: 'Vedações Estanques',
+                                    antena: 'Antena LoRa OK',
+                                    calib: 'Calibração Efetuada',
+                                    valida: 'Valores Validados',
+                                    eletrodo: 'Elétrodo Limpo',
+                                    bateria: 'Verificação/Troca de Bateria',
+                                    peca: 'Componente Trocado',
+                                    agua: 'Teste de Água OK',
+                                    envio: 'Teste de Envio OK'
+                                };
+                                return (
+                                <div key={idx} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col md:flex-row gap-6 hover:shadow-md transition-shadow">
+                                    <div className="flex-shrink-0 flex flex-col items-center justify-center bg-slate-50 w-24 h-24 rounded-xl border border-slate-100">
+                                        <span className="text-2xl font-black text-indigo-600">
+                                            {new Date(manut.data_intervencao).getDate()}
+                                        </span>
+                                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                            {new Date(manut.data_intervencao).toLocaleString('pt-PT', { month: 'short' })}
+                                        </span>
+                                    </div>
+                                    <div className="flex-1">
+                                        <div className="flex flex-wrap gap-2 mb-2">
+                                            <span className="px-3 py-1 bg-indigo-50 text-indigo-700 rounded-lg text-[10px] font-black uppercase tracking-widest">
+                                                {manut.tipo === 'limpeza' ? 'Limpeza' : manut.tipo === 'calibracao' ? 'Calibração' : 'Reparação'}
+                                            </span>
+                                            <span className="px-3 py-1 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-black uppercase tracking-widest">
+                                                Boia: {manut.boia?.nome}
+                                            </span>
+                                            <span className="px-3 py-1 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-black uppercase tracking-widest">
+                                                Técnico: {manut.user?.name || 'N/A'}
+                                            </span>
+                                        </div>
+                                        <p className="text-sm font-bold text-slate-700 mt-2">{manut.observacoes || 'Sem observações detalhadas.'}</p>
+                                        
+                                        {manut.checklist && typeof manut.checklist === 'object' && Object.keys(manut.checklist).length > 0 && (
+                                            <div className="mt-4 pt-4 border-t border-slate-100">
+                                                <div className="flex flex-wrap gap-2">
+                                                    {Object.entries(manut.checklist).filter(([_, val]) => val).map(([key, _]) => (
+                                                        <span key={key} className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-50 border border-slate-200 text-slate-600 rounded-lg text-xs font-bold">
+                                                            <span className="text-emerald-500">✓</span>
+                                                            {checklistLabels[key] || key}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
             </div>
-        </div>
       )}
 
       <style>{`

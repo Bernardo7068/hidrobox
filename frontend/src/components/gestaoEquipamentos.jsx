@@ -151,7 +151,7 @@ export default function GestaoEquipamentos({ isHelpMode }) {
         tipo: 'limpeza',
         observacoes: '',
         estado_geral: 'bom',
-        checklist: { sensores: true, bateria: true, vedacao: true, antena: true }
+        checklist: { casco: true, sensores: true, vedacao: true, antena: true }
     });
 
     const handleSubmeterManutencao = async (e) => {
@@ -163,7 +163,7 @@ export default function GestaoEquipamentos({ isHelpMode }) {
             });
             setMostrarTourManutencao(false);
             setMensagem({ texto: 'Relatório de manutenção registado!', tipo: 'sucesso' });
-            carregarDados();
+            carregarDadosIniciais();
             if (boiaDetalhe) {
                 const res = await api.get(`/boias/${boiaDetalhe.id}`);
                 setBoiaDetalhe(res.data);
@@ -533,7 +533,7 @@ export default function GestaoEquipamentos({ isHelpMode }) {
         <div className="max-w-7xl mx-auto space-y-8 pb-12">
             
             {/* Alerta de Descoberta de Hardware (Boias Pendentes) */}
-            {boiasPendentes.length > 0 && (
+            {(isAdmin || isTecnico) && boiasPendentes.length > 0 && (
                 <section className="mx-4 bg-amber-50 border-2 border-amber-200 p-6 rounded-[2rem] shadow-lg shadow-amber-200/20 flex flex-col md:flex-row items-center justify-between gap-6 animate-bounce-slow">
                     <div className="flex items-center gap-5">
                         <div className="w-14 h-14 bg-amber-500 rounded-2xl flex items-center justify-center text-2xl shadow-lg shadow-amber-500/40">
@@ -709,7 +709,7 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                                                 key={boia.id} 
                                                 onClick={() => {
                                                     setBoiaDetalhe(boia);
-                                                    if (boia.estado === 'pendente') {
+                                                    if (boia.estado === 'pendente' && (isAdmin || isTecnico)) {
                                                         setEditandoBoia(true);
                                                         setFormEditBoia({
                                                             ...boia,
@@ -940,7 +940,7 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                 )}
 
                 {/* ABA 2: NOVO REGISTO */}
-                {subAba === 'nova' && (
+                {subAba === 'nova' && (isAdmin || isTecnico) && (
                     <div className="max-w-4xl mx-auto space-y-12 animate-fade-in relative">
                         {isHelpMode && <HelpPin text="➕ Novo Registo: Usa este formulário para adicionar uma nova boia à tua rede. Segue os 3 passos: Identidade, Localização e Sensores." className="absolute top-4 left-4" position="right" />}
                         <header className="text-center space-y-4">
@@ -1626,7 +1626,7 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                     <div className="space-y-12 animate-fade-in relative">
                         {isHelpMode && <HelpPin text="📡 Torres de Comunicação: Aqui geres as antenas que recebem os dados das boias. Se uma boia estiver fora do círculo verde, pode perder o sinal!" className="absolute top-4 right-4" position="left" />}
                         {/* Alerta de Descoberta de Gateway */}
-                        {gateways.some(gw => gw.estado === 'pendente') && (
+                        {(isAdmin || isTecnico) && gateways.some(gw => gw.estado === 'pendente') && (
                             <section className="mx-4 bg-emerald-50 border-2 border-emerald-200 p-6 rounded-[2rem] shadow-lg shadow-emerald-200/20 flex flex-col md:flex-row items-center justify-between gap-6">
                                 <div className="flex items-center gap-5">
                                     <div className="w-14 h-14 bg-emerald-500 rounded-2xl flex items-center justify-center text-2xl shadow-lg shadow-emerald-500/40 text-white">
@@ -1781,11 +1781,13 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                                     )}
 
                             {/* Lista de Gateways e Mapa de Cobertura */}
-                            <section className="lg:col-span-2 space-y-8">
+                            <section className={`space-y-8 ${(isAdmin || isTecnico) ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
                                 <div className={`${cardClass} p-2 h-[500px] shadow-2xl relative overflow-hidden`}>
-                                    <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] bg-slate-900 text-white px-6 py-2 rounded-full font-black text-[10px] uppercase tracking-widest shadow-xl pointer-events-none">
-                                        📍 Clique no mapa para posicionar a torre
-                                    </div>
+                                    {(isAdmin || isTecnico) && (
+                                        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] bg-slate-900 text-white px-6 py-2 rounded-full font-black text-[10px] uppercase tracking-widest shadow-xl pointer-events-none">
+                                            📍 Clique no mapa para posicionar a torre
+                                        </div>
+                                    )}
                                     <MapContainer center={[39.7436, -8.8071]} zoom={13} style={{ height: '100%', width: '100%' }}>
                                         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                                         
@@ -2488,7 +2490,18 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                                     <label className={labelClass}>Tipo de Trabalho</label>
                                     <select 
                                         value={formManutencao.tipo}
-                                        onChange={e => setFormRelatorioManutencao({...formManutencao, tipo: e.target.value})}
+                                        onChange={e => {
+                                            const novoTipo = e.target.value;
+                                            let novaChecklist = {};
+                                            if (novoTipo === 'limpeza') {
+                                                novaChecklist = { casco: true, sensores: true, vedacao: true, antena: true };
+                                            } else if (novoTipo === 'calibracao') {
+                                                novaChecklist = { calib: true, valida: true, eletrodo: true, bateria: true };
+                                            } else {
+                                                novaChecklist = { peca: true, agua: true, bateria: true, envio: true };
+                                            }
+                                            setFormRelatorioManutencao({...formManutencao, tipo: novoTipo, checklist: novaChecklist});
+                                        }}
                                         className={inputClass}
                                     >
                                         <option value="limpeza">Limpeza Geral</option>

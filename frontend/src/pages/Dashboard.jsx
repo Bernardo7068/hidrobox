@@ -13,10 +13,9 @@ import HelpPin from '../components/HelpPin';
 import api from '../api';
 import { io } from 'socket.io-client';
 
-export default function Dashboard({ onLogout }) {
-  // Obter utilizador real do localStorage PRIMEIRO
-  const user = JSON.parse(sessionStorage.getItem('user') || '{"role": "leitor_empresa", "name": "Utilizador"}'); 
-
+export default function Dashboard({ onLogout, user, setUser }) {
+  // O utilizador agora é injetado diretamente pelo App.jsx (reativo)
+  
   const [abaAtiva, setAbaAtiva] = useState(() => sessionStorage.getItem('abaAtiva') || 'guia');
 
   useEffect(() => {
@@ -168,6 +167,26 @@ export default function Dashboard({ onLogout }) {
     socket.on('novo-alerta', (data) => {
       console.log('⚠️ Novo alerta recebido (Tempo Real):', data);
       carregarDadosGlobais();
+    });
+
+    socket.on('perfil-atualizado', (data) => {
+      const currentUser = JSON.parse(sessionStorage.getItem('user') || '{}');
+      if (String(data.user_id) === String(currentUser.id)) {
+        console.log('🔄 O teu perfil foi alterado por um administrador. A atualizar...');
+        api.get('/me')
+          .then(res => {
+            if (res.data && res.data.user) {
+                const updatedUser = res.data.user;
+                sessionStorage.setItem('user', JSON.stringify(updatedUser));
+                setUser(updatedUser);
+                // Se o utilizador perdeu acesso à aba atual (ex: super-admin), redimensionamos
+                if (updatedUser.role === 'leitor_empresa' || updatedUser.role === 'tecnico_empresa') {
+                    setAbaAtiva('visao-geral');
+                }
+            }
+          })
+          .catch(() => onLogout()); // Se foi desativado/removido, força o logout
+      }
     });
     
     return () => {

@@ -254,7 +254,12 @@ class BoiaController extends Controller
     public function registarManutencao(Request $request, $id)
     {
         $user = $request->user();
-        $boia = Boia::findOrFail($id);
+        $boia = Boia::with('zona')->findOrFail($id);
+
+        // Proteção Multi-Tenant
+        if ($user && $user->role !== 'super_admin' && $boia->zona->empresa_id !== $user->empresa_id) {
+            return response()->json(['sucesso' => false, 'mensagem' => 'Acesso negado.'], 403);
+        }
 
         $validated = $request->validate([
             'tipo'            => 'required|string|in:limpeza,calibracao,reparacao',

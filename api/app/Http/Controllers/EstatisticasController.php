@@ -88,17 +88,37 @@ class EstatisticasController extends Controller
             return $row;
         })->values();
 
+        // Buscar Histórico de Manutenções
+        $manutencoesQuery = \App\Models\Manutencao::query()
+            ->with(['user', 'boia'])
+            ->join('boias', 'manutencoes.boia_id', '=', 'boias.id')
+            ->join('zonas', 'boias.zona_id', '=', 'zonas.id')
+            ->select('manutencoes.*');
+
+        if ($user->role !== 'super_admin') {
+            $manutencoesQuery->where('zonas.empresa_id', $user->empresa_id);
+        }
+        if ($request->filled('boia_id')) $manutencoesQuery->where('manutencoes.boia_id', $request->boia_id);
+        if ($request->filled('data_inicio')) $manutencoesQuery->where('manutencoes.data_intervencao', '>=', $request->data_inicio);
+        if ($request->filled('data_fim')) {
+            $data_fim = strlen($request->data_fim) == 10 ? $request->data_fim . ' 23:59:59' : $request->data_fim;
+            $manutencoesQuery->where('manutencoes.data_intervencao', '<=', $data_fim);
+        }
+
+        $manutencoes = $manutencoesQuery->orderBy('data_intervencao', 'desc')->get();
+
         return response()->json([
             'geral' => $estatisticas,
             'temporal' => $temporal,
-            'telemetria' => $telemetria
+            'telemetria' => $telemetria,
+            'manutencoes' => $manutencoes
         ]);
     }
 
     public function exportarPDF(Request $request)
     {
         $user = $request->user();
-        if (!in_array($user->role, ['super_admin', 'admin_empresa'])) {
+        if (!in_array($user->role, ['super_admin', 'admin_empresa', 'tecnico_empresa'])) {
             return response()->json(['error' => 'Sem permissão para exportar relatórios.'], 403);
         }
 
@@ -109,19 +129,62 @@ class EstatisticasController extends Controller
                 $q->where('empresa_id', $user->empresa_id);
             });
         }
-        if ($request->has('boia_id')) $boias->where('id', $request->boia_id);
+        if ($request->has('boia_id') && $request->boia_id != '') {
+            $boias->where('id', $request->boia_id);
+        }
         
-        $boias = $boias->with(['leituras' => function($q) use ($request) {
-            if ($request->has('data_inicio')) $q->where('data_hora', '>=', $request->data_inicio);
-            if ($request->has('data_fim')) $q->where('data_hora', '<=', $request->data_fim);
+        $boias = $boias->with(['zona.empresa', 'leituras' => function($q) use ($request) {
+            if ($request->has('data_inicio') && $request->data_inicio != '') {
+                $q->where('data_hora', '>=', $request->data_inicio);
+            }
+            if ($request->has('data_fim') && $request->data_fim != '') {
+                // To ensure it includes the whole day, append 23:59:59 if it's just a date
+                $data_fim = strlen($request->data_fim) == 10 ? $request->data_fim . ' 23:59:59' : $request->data_fim;
+                $q->where('data_hora', '<=', $data_fim);
+            }
             $q->orderBy('data_hora', 'desc')->limit(100);
-        }, 'limites.tipoSensor'])->get();
+        }, 'limites.tipo_sensor', 'manutencoes' => function($q) use ($request) {
+            if ($request->has('data_inicio') && $request->data_inicio != '') {
+                $q->where('data_intervencao', '>=', $request->data_inicio);
+            }
+            if ($request->has('data_fim') && $request->data_fim != '') {
+                $data_fim = strlen($request->data_fim) == 10 ? $request->data_fim . ' 23:59:59' : $request->data_fim;
+                $q->where('data_intervencao', '<=', $data_fim);
+            }
+            $q->with('user');
+        }])->get();
+
+        foreach ($boias as $boia) {
+            $q = \App\Models\Leitura::where('boia_id', $boia->id)
+                ->join('tipos_sensor', 'leituras.tipo_sensor_id', '=', 'tipos_sensor.id')
+                ->select(
+                    'tipos_sensor.nome as sensor',
+                    'tipos_sensor.unidade as unidade',
+                    \Illuminate\Support\Facades\DB::raw('MIN(CAST(valor AS DECIMAL)) as minimo'),
+                    \Illuminate\Support\Facades\DB::raw('MAX(CAST(valor AS DECIMAL)) as maximo'),
+                    \Illuminate\Support\Facades\DB::raw('AVG(CAST(valor AS DECIMAL)) as media'),
+                    \Illuminate\Support\Facades\DB::raw('COUNT(valor) as total_leituras')
+                )
+                ->groupBy('tipos_sensor.nome', 'tipos_sensor.unidade');
+                
+            if ($request->has('data_inicio') && $request->data_inicio != '') {
+                $q->where('data_hora', '>=', $request->data_inicio);
+            }
+            if ($request->has('data_fim') && $request->data_fim != '') {
+                $data_fim = strlen($request->data_fim) == 10 ? $request->data_fim . ' 23:59:59' : $request->data_fim;
+                $q->where('data_hora', '<=', $data_fim);
+            }
+            
+            $boia->resumo_estatistico = $q->get();
+        }
 
         $data = [
-            'titulo' => 'Relatório Técnico HidroBox',
+            'titulo' => 'Relatório Técnico de Monitorização - HidroBox',
             'data_emissao' => now()->format('d/m/Y H:i'),
             'emissor' => $user->name,
-            'boias' => $boias
+            'boias' => $boias,
+            'data_inicio' => $request->data_inicio,
+            'data_fim' => $request->data_fim
         ];
 
         $pdf = Pdf::loadView('pdf.relatorio_sensores', $data);

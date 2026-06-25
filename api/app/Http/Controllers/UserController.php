@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 
 class UserController extends Controller
 {
@@ -74,6 +75,19 @@ class UserController extends Controller
 
         $user->update($validated);
 
+        // Notificar via WebSocket
+        try {
+            Http::withHeaders([
+                'x-internal-token' => env('INTERNAL_API_SECRET', 'chave-secreta-interna-hidrobox')
+            ])->post('http://localhost:3001/api/broadcast', [
+                'empresa_id' => $user->empresa_id ?? 'super_admin',
+                'event'      => 'perfil-atualizado',
+                'data'       => ['user_id' => $user->id, 'role' => $user->role]
+            ]);
+        } catch (\Exception $e) {
+            // Ignorar falha do websocket
+        }
+
         return response()->json(['sucesso' => true, 'user' => $user]);
     }
 
@@ -90,6 +104,20 @@ class UserController extends Controller
         }
 
         $user->delete();
+
+        // Notificar via WebSocket para forçar logout no cliente
+        try {
+            Http::withHeaders([
+                'x-internal-token' => env('INTERNAL_API_SECRET', 'chave-secreta-interna-hidrobox')
+            ])->post('http://localhost:3001/api/broadcast', [
+                'empresa_id' => $user->empresa_id ?? 'super_admin',
+                'event'      => 'perfil-atualizado',
+                'data'       => ['user_id' => $user->id, 'role' => 'apagado']
+            ]);
+        } catch (\Exception $e) {
+            // Ignorar
+        }
+
         return response()->json(['sucesso' => true, 'mensagem' => 'Utilizador removido.']);
     }
 }
