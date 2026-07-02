@@ -1,74 +1,86 @@
-/*
- * file DFRobot_ESP_EC_BY_GREENPONIK.ino
- * @ https://github.com/GreenPonik/DFRobot_ESP_EC_BY_GREENPONIK
- *
- * This is the sample code for Gravity: Analog EC Sensor / Meter Kit V2, SKU:DFR300
- *  * In order to guarantee precision, a temperature sensor such as DS18B20 is needed, to execute automatic temperature compensation.
- * You can send commands in the serial monitor to execute the calibration.
- * Serial Commands:
- *   enterec -> enter the calibration mode
- *   calec   -> calibrate with the standard buffer solution, two buffer solutions(1413us/cm and 12.88ms/cm) will be automaticlly recognized
- *   exitec  -> save the calibrated parameters and exit from calibration mode
- * 
- * Based on the @ https://github.com/DFRobot/DFRobot_EC
- * Copyright   [DFRobot](http://www.dfrobot.com), 2018
- * Copyright   GNU Lesser General Public License
- *
- * ##################################################
- * ##################################################
- * ########## Fork on github by GreenPonik ##########
- * ############# ONLY ESP COMPATIBLE ################
- * ##################################################
- * ##################################################
- * 
- * version  V1.1.2
- * date  2019-06
- */
+#include <Arduino.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 
-#include "Arduino.h"
-#include "Adafruit_ADS1015.h"
-#include "DFRobot_ESP_EC.h"
-#include "EEPROM.h"
+#define PINO_TEMP 14
+#define PINO_EC   25 // Pino analógico do ESP32
 
-DFRobot_ESP_EC ec;
-Adafruit_ADS1115 ads;
+OneWire oneWire(PINO_TEMP);
+DallasTemperature sensors(&oneWire);
 
-float voltage, ecValue, temperature = 25;
+float vEC = 0.0;
+float ecVal = 0.0;
+float temp = 25.0; 
 
 void setup()
 {
-	Serial.begin(115200);
-	EEPROM.begin(32);//needed EEPROM.begin to store calibration k in eeprom
-	ec.begin();//by default lib store calibration k since 10 change it by set ec.begin(30); to start from 30
-	ads.setGain(GAIN_ONE);
-	ads.begin();
+  Serial.begin(115200);
+  sensors.begin();
+  
+  // 1. CONFIGURAÇÃO CRÍTICA DO ADC DO ESP32
+  analogReadResolution(12);           // Garante resolução de 0 a 4095
+  analogSetAttenuation(ADC_11db);     // Configura o ESP32 para ler a escala completa até ~3.3V
+  
+  Serial.println("==================================================");
+  Serial.println("   SISTEMA EC ESP32 - AJUSTADO COM DADOS REAIS   ");
+  Serial.println("==================================================");
 }
 
 void loop()
 {
-	static unsigned long timepoint = millis();
-	if (millis() - timepoint > 1000U) //time interval: 1s
-	{
+  static unsigned long timepoint = millis();
+  if (millis() - timepoint > 1000U) 
+  {
+    timepoint = millis();
+    
+    // 2. Ler a Temperatura
+    sensors.requestTemperatures();
+    temp = sensors.getTempCByIndex(0);
+    if (temp < -10 || temp > 80) temp = 25.0; // Salvaguarda se o sensor falhar
 
-		timepoint = millis();
-		voltage = ads.readADC_SingleEnded(0) / 10;
-		Serial.print("voltage:");
-		Serial.println(voltage, 4);
+    // 3. Fazer uma média de leituras para eliminar o ruído elétrico do ESP32
+    long somaAnalogica = 0;
+    for(int i = 0; i < 20; i++) {
+        somaAnalogica += analogRead(PINO_EC);
+        delay(5);
+    }
+    float mediaAnalogica = somaAnalogica / 20.0;
 
-		//temperature = readTemperature();  // read your temperature sensor to execute temperature compensation
-		Serial.print("temperature:");
-		Serial.print(temperature, 1);
-		Serial.println("^C");
+    // 4. Conversão exata para Milivolts (Escala real de 3300mV do ESP32)
+    vEC = (mediaAnalogica / 4095.0) * 3300.0; 
 
-		ecValue = ec.readEC(voltage, temperature); // convert voltage to EC with temperature compensation
-		Serial.print("EC:");
-		Serial.print(ecValue, 4);
-		Serial.println("ms/cm");
-	}
-	ec.calibration(voltage, temperature); // calibration process by Serail CMD
-}
+    // 5. Rampa Matemática Baseada nos Teus Testes Reais
+        float ecBase = 0.0;
 
-float readTemperature()
-{
-	//add your code here to get the temperature from your temperature sensor
+    if (vEC <= 35.0) { 
+        // Se a voltagem for inferior a 35mV (como acontece na tua água da torneira onde dá 0mV),
+        // o código assume o valor real aproximado de uma água canalizada limpa em Portugal.
+        ecBase = 0.300; 
+    } 
+    else if (vEC > 35.0 && vEC <= 70.5) {
+        // ZONA DE TRANSIÇÃO (De um valor baixo até aos teus 70.5mV medidos na solução de 1.41 ms/cm)
+        ecBase = 0.300 + (vEC - 35.0) * (1.41 - 0.300) / (70.5 - 35.0);
+    } 
+    else {
+        // ZONA ALTA (Entre os teus 70.5mV e os 1455.5mV medidos na solução de 12.88 ms/cm)
+        ecBase = 1.41 + (vEC - 70.5) * (12.88 - 1.41) / (1455.5 - 70.5);
+    }
+
+    // 6. Compensação de Temperatura Ativa (2% por cada °C fora dos 25°C)
+    float fatorTemperatura = 1.0 + 0.02 * (temp - 25.0);
+    ecVal = ecBase / fatorTemperatura;
+
+    if (ecVal < 0.0) ecVal = 0.0;
+
+    // 7. Mostrar Resultados
+    Serial.print("ADC Raw: ");
+    Serial.print(mediaAnalogica, 0);
+    Serial.print(" | Volt EC: ");
+    Serial.print(vEC, 2);
+    Serial.print(" mV | Temp: ");
+    Serial.print(temp, 1);
+    Serial.print(" °C | -> EC: ");
+    Serial.print(ecVal, 4);
+    Serial.println(" ms/cm");
+  }
 }

@@ -41,6 +41,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/boias/{id}/manutencao', [BoiaController::class, 'registarManutencao'])->middleware('role:super_admin,admin_empresa,tecnico_empresa');
     Route::post('/boias/associar-sensor', [BoiaController::class, 'associarSensor'])->middleware('role:super_admin,admin_empresa,tecnico_empresa');
     Route::post('/boias/desassociar-sensor', [BoiaController::class, 'desassociarSensor'])->middleware('role:super_admin,admin_empresa');
+    Route::post('/boias/{id}/ciclos-manutencao', [BoiaController::class, 'atualizarCiclos'])->middleware('role:super_admin,admin_empresa,tecnico_empresa');
     Route::delete('/boias/{id}', [BoiaController::class, 'destroy'])->middleware('role:super_admin,admin_empresa');
     Route::get('/boias/{id}', [BoiaController::class, 'show']);
     Route::get('/boias/{id}/historico', [LeituraController::class, 'historico']);

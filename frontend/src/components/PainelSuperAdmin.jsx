@@ -712,7 +712,7 @@ export default function PainelSuperAdmin({ onAbaChange, isHelpMode }) {
                                 </form>
                             </div>
                         </div>
-                    ) : abaAtiva === 'usuarios' && !editandoUser ? (
+                    ) : abaAtiva === 'utilizadores' && !editandoUser ? (
                         <div className="bg-slate-900 p-10 rounded-[2.5rem] text-white shadow-2xl shadow-slate-200 relative overflow-hidden">
                             <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-600/20 rounded-full blur-[50px] -mr-16 -mt-16"></div>
                             

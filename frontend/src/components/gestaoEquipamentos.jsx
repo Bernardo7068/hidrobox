@@ -220,6 +220,8 @@ export default function GestaoEquipamentos({ isHelpMode }) {
 
     // Estado para controlar a expansão das boias na Agenda Técnica
     const [agendaExpandida, setAgendaExpandida] = useState({});
+    const [configurandoCiclos, setConfigurandoCiclos] = useState(null);
+    const [ciclosEditando, setCiclosEditando] = useState({});
 
     const toggleAgendaBoia = (id) => {
         setAgendaExpandida(prev => ({ ...prev, [id]: !prev[id] }));
@@ -377,6 +379,23 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                 valor_maximo: Number(max)
             });
             mostrarMensagem('Limites operacionais atualizados!', 'sucesso');
+            carregarDadosIniciais();
+        } catch (error) { console.error(error); }
+    };
+
+    const handleSalvarCiclos = async (boiaId, sensorId) => {
+        const ciclos = ciclosEditando[`${boiaId}-${sensorId}`];
+        if (!ciclos) return setConfigurandoCiclos(null);
+        
+        try {
+            await api.post(`/boias/${boiaId}/ciclos-manutencao`, {
+                tipo_sensor_id: Number(sensorId),
+                intervalo_limpeza_dias: Number(ciclos.limpeza),
+                intervalo_calibracao_dias: Number(ciclos.calibracao),
+                dias_proxima_manutencao: Number(ciclos.substituicao)
+            });
+            mostrarMensagem('Ciclos de manutenção atualizados!', 'sucesso');
+            setConfigurandoCiclos(null);
             carregarDadosIniciais();
         } catch (error) { console.error(error); }
     };
@@ -726,25 +745,25 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                                                 }}
                                                 className={`${cardClass} p-10 hover:border-blue-300 transition-all hover:shadow-2xl hover:shadow-blue-900/10 cursor-pointer group relative`}
                                             >
-                                                {/* Indicador de Estado */}
-                                                <div className="absolute top-0 right-0 p-8 flex flex-col items-end gap-2">
-                                                    <div className={`flex items-center gap-2 px-4 py-1.5 rounded-full border ${
-                                                        isOffline ? 'bg-slate-100 border-slate-200 text-slate-500' :
-                                                        boia.estado === 'ativa' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' :
-                                                        boia.estado === 'pendente' ? 'bg-amber-50 border-amber-200 text-amber-700 animate-pulse' :
-                                                        'bg-rose-50 border-rose-100 text-rose-700'
-                                                    }`}>
-                                                        <span className={`w-2 h-2 rounded-full ${
-                                                            isOffline ? 'bg-slate-400' :
-                                                            boia.estado === 'ativa' ? 'bg-emerald-500 animate-ping' :
-                                                            boia.estado === 'pendente' ? 'bg-amber-500 animate-pulse' :
-                                                            'bg-rose-500'
-                                                        }`}></span>
-                                                        <span className="text-[10px] font-black uppercase tracking-widest">
-                                                            {isOffline ? 'Desconectada' : boia.estado}
-                                                        </span>
-                                                    </div>
-                                                    <div className="flex gap-2">
+                                                {/* Indicador de Estado e Energia */}
+                                                <div className="flex flex-wrap items-center justify-between gap-4 mb-8 pb-6 border-b border-slate-100">
+                                                    <div className="flex flex-wrap items-center gap-3">
+                                                        <div className={`flex items-center gap-2 px-4 py-1.5 rounded-full border ${
+                                                            isOffline ? 'bg-slate-100 border-slate-200 text-slate-500' :
+                                                            boia.estado === 'ativa' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' :
+                                                            boia.estado === 'pendente' ? 'bg-amber-50 border-amber-200 text-amber-700 animate-pulse' :
+                                                            'bg-rose-50 border-rose-100 text-rose-700'
+                                                        }`}>
+                                                            <span className={`w-2 h-2 rounded-full ${
+                                                                isOffline ? 'bg-slate-400' :
+                                                                boia.estado === 'ativa' ? 'bg-emerald-500 animate-ping' :
+                                                                boia.estado === 'pendente' ? 'bg-amber-500 animate-pulse' :
+                                                                'bg-rose-500'
+                                                            }`}></span>
+                                                            <span className="text-[10px] font-black uppercase tracking-widest">
+                                                                {isOffline ? 'Desconectada' : boia.estado}
+                                                            </span>
+                                                        </div>
                                                         <Tooltip text="Nível de energia da estação">
                                                             <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 px-4 py-1.5 rounded-full border border-slate-100 cursor-help">
                                                                 🔋 {boia.bateria}%
@@ -1467,32 +1486,69 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                                                                                                 </span>
                                                                                             </Tooltip>
                                                                                             <div>
-                                                                                                <span className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">{info?.nome}</span>
-                                                                                                <span className={`text-sm font-black uppercase ${overdue ? 'text-rose-600' : 'text-slate-800'}`}>
-                                                                                                    {overdue ? 'Excedido' : 'Calibrado'}
-                                                                                                </span>
+                                                                                                <span className="block text-sm font-black text-slate-500 uppercase tracking-widest">{info?.nome}</span>
+                                                                                                {overdue && (
+                                                                                                    <span className="text-base font-black uppercase text-rose-600">
+                                                                                                        Excedido
+                                                                                                    </span>
+                                                                                                )}
                                                                                             </div>
                                                                                         </div>
                                                                                         {!isLeitor && (
-                                                                                          <Tooltip text="Registar calibração manual" position="left">
-                                                                                              <button 
-                                                                                                  onClick={() => {
-                                                                                                      setBoiaDetalhe(boia);
-                                                                                                      setFormRelatorioManutencao({...formManutencao, tipo: 'calibracao', tipo_sensor_id: lim.tipo_sensor_id});
-                                                                                                      setMostrarTourManutencao(true);
-                                                                                                  }}
-                                                                                                  className="text-blue-500 hover:text-blue-700 transition-colors p-1"
-                                                                                              >
-                                                                                                  🔧
-                                                                                              </button>
-                                                                                          </Tooltip>
+                                                                                            <div className="flex items-center gap-1">
+                                                                                                <Tooltip text="Configurar Ciclos" position="top">
+                                                                                                    <button 
+                                                                                                        onClick={() => {
+                                                                                                            setConfigurandoCiclos(`${boia.id}-${lim.tipo_sensor_id}`);
+                                                                                                            setCiclosEditando({...ciclosEditando, [`${boia.id}-${lim.tipo_sensor_id}`]: {
+                                                                                                                limpeza: lim.intervalo_limpeza_dias || 30,
+                                                                                                                calibracao: lim.intervalo_calibracao_dias || 180,
+                                                                                                                substituicao: lim.dias_proxima_manutencao || 365
+                                                                                                            }});
+                                                                                                        }}
+                                                                                                        className="text-slate-300 hover:text-slate-600 transition-colors p-1"
+                                                                                                    >⚙️</button>
+                                                                                                </Tooltip>
+                                                                                                <Tooltip text="Registar calibração manual" position="left">
+                                                                                                    <button 
+                                                                                                        onClick={() => {
+                                                                                                            setBoiaDetalhe(boia);
+                                                                                                            setFormRelatorioManutencao({...formManutencao, tipo: 'calibracao', tipo_sensor_id: lim.tipo_sensor_id});
+                                                                                                            setMostrarTourManutencao(true);
+                                                                                                        }}
+                                                                                                        className="text-blue-500 hover:text-blue-700 transition-colors p-1"
+                                                                                                    >🔧</button>
+                                                                                                </Tooltip>
+                                                                                            </div>
                                                                                         )}
                                                                                         </div>
                                                                                     
+                                                                                    {configurandoCiclos === `${boia.id}-${lim.tipo_sensor_id}` ? (
+                                                                                        <div className="space-y-4 mt-4 border-t border-slate-100 pt-4">
+                                                                                            <div className="grid grid-cols-3 gap-3">
+                                                                                                <div>
+                                                                                                    <span className="text-xs font-black uppercase text-slate-400 block mb-1 text-center">Limpeza</span>
+                                                                                                    <input type="number" value={ciclosEditando[`${boia.id}-${lim.tipo_sensor_id}`]?.limpeza} onChange={e => setCiclosEditando({...ciclosEditando, [`${boia.id}-${lim.tipo_sensor_id}`]: {...ciclosEditando[`${boia.id}-${lim.tipo_sensor_id}`], limpeza: e.target.value}})} className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm font-bold text-center outline-none focus:border-blue-500" />
+                                                                                                </div>
+                                                                                                <div>
+                                                                                                    <span className="text-xs font-black uppercase text-slate-400 block mb-1 text-center">Calibração</span>
+                                                                                                    <input type="number" value={ciclosEditando[`${boia.id}-${lim.tipo_sensor_id}`]?.calibracao} onChange={e => setCiclosEditando({...ciclosEditando, [`${boia.id}-${lim.tipo_sensor_id}`]: {...ciclosEditando[`${boia.id}-${lim.tipo_sensor_id}`], calibracao: e.target.value}})} className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm font-bold text-center outline-none focus:border-blue-500" />
+                                                                                                </div>
+                                                                                                <div>
+                                                                                                    <span className="text-xs font-black uppercase text-slate-400 block mb-1 text-center">Substituição</span>
+                                                                                                    <input type="number" value={ciclosEditando[`${boia.id}-${lim.tipo_sensor_id}`]?.substituicao} onChange={e => setCiclosEditando({...ciclosEditando, [`${boia.id}-${lim.tipo_sensor_id}`]: {...ciclosEditando[`${boia.id}-${lim.tipo_sensor_id}`], substituicao: e.target.value}})} className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-sm font-bold text-center outline-none focus:border-blue-500" />
+                                                                                                </div>
+                                                                                            </div>
+                                                                                            <div className="flex gap-3">
+                                                                                                <button onClick={() => handleSalvarCiclos(boia.id, lim.tipo_sensor_id)} className="flex-1 bg-emerald-500 text-white text-xs font-black uppercase py-2 rounded-lg hover:bg-emerald-600 transition-all shadow-sm">Guardar Alterações</button>
+                                                                                                <button onClick={() => setConfigurandoCiclos(null)} className="bg-slate-200 text-slate-600 text-xs font-black uppercase px-4 py-2 rounded-lg hover:bg-slate-300 transition-all">Cancelar</button>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    ) : (
                                                                                     <div className="space-y-3">
-                                                                                        <div className="flex justify-between text-[10px] font-black uppercase tracking-tighter">
-                                                                                            <span className="text-slate-400">Próxima Calibração</span>
-                                                                                            <span className={overdue ? 'text-rose-600' : 'text-slate-600'}>
+                                                                                        <div className="flex justify-between items-center uppercase tracking-tighter">
+                                                                                            <span className="text-xs font-black text-slate-400">Próxima Intervenção</span>
+                                                                                            <span className={`text-sm font-black ${overdue ? 'text-rose-600' : 'text-slate-700'}`}>
                                                                                                 {calculateNextMaintenance(lim.ultima_manutencao, lim.dias_proxima_manutencao)}
                                                                                             </span>
                                                                                         </div>
@@ -1504,7 +1560,8 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                                                                                                 ></div>
                                                                                             </div>
                                                                                         </Tooltip>
-                                                                                    </div>
+                                                                                        </div>
+                                                                                    )}
                                                                                 </div>
                                                                             );
                                                                         })}
@@ -1876,9 +1933,16 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                                                     <h4 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">{gw.nome}</h4>
                                                     <code className="text-sm font-black text-slate-400 tracking-widest block mt-1">{gw.mac_gateway}</code>
                                                 </div>
-                                                <span className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${gw.estado === 'ativo' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
-                                                    {gw.estado}
-                                                </span>
+                                                <div className="flex flex-col items-end gap-2">
+                                                    <span className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${gw.estado === 'ativo' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
+                                                        {gw.estado}
+                                                    </span>
+                                                    <Tooltip text="Nível de Bateria do Gateway" position="left">
+                                                        <span className="px-3 py-1 bg-slate-50 border border-slate-100 rounded-lg text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1">
+                                                            🔋 {gw.bateria != null ? `${gw.bateria}%` : 'N/D'}
+                                                        </span>
+                                                    </Tooltip>
+                                                </div>
                                             </div>
                                             <div className="mt-8 pt-6 border-t border-slate-100">
                                                 <div className="flex justify-between items-end mb-4">

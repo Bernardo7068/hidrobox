@@ -4,7 +4,7 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
-#include "mbedtls/aes.h" // <-- ADICIONADO: Criptografia nativa do ESP32
+#include "mbedtls/aes.h" 
 
 #include <Wire.h>
 #include <Adafruit_GFX.h>
@@ -16,14 +16,15 @@
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // --- CONFIGURAÇÕES DE REDE ---
-const char* ssid = "hidrobox";  //Vodafone-DB65F2
-const char* password = "12345678";  //jTdz36hn9D
-const char* serverName = "http://192.168.1.74:8000/api/leituras";
+const char* ssid = "hidrobox";  
+const char* password = "12345678";  
+const char* serverName = "http://172.20.10.2:8000/api/leituras";
 const char* apiKey = "hidrobox_segredo_2026";
 
 // --- CONFIGURAÇÃO CHAVE AES ---
-// Tem de ser EXATAMENTE a mesma chave de 16 caracteres definida na Boia
 const String aesKey = "HidroBoxKey2026!"; 
+
+
 
 // Pinos LoRa (LilyGO LoRa32 V3.0)
 #define SCK 5
@@ -33,8 +34,8 @@ const String aesKey = "HidroBoxKey2026!";
 #define RST 23
 #define DIO0 26
 #define TCXO_EN 12
+#define PINO_BAT  35
 
-// Função auxiliar para processar a desencriptação AES-128
 void desencriptarAES(const uint8_t* encryptedText, uint8_t* output, int len) {
    mbedtls_aes_context aes;
    mbedtls_aes_init(&aes);
@@ -50,8 +51,8 @@ void setup() {
     Serial.begin(115200);
     delay(1000);
 
-    // Inicializar OLED
     if(display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+      display.setRotation(2);
       display.clearDisplay();
       display.setTextSize(1);
       display.setTextColor(SSD1306_WHITE);
@@ -90,20 +91,15 @@ void setup() {
 void loop() {
     int packetSize = LoRa.parsePacket();
 
-    // Verificação de segurança: pacotes AES têm de ser múltiplos de 16 bytes
     if (packetSize && packetSize % 16 == 0) {
-      // --- CAPTURAR O RSSI DO PACOTE RECEBIDO ---
       int rssi = LoRa.packetRssi();
 
-      // 1. Ler os bytes encriptados vindos do ar
       uint8_t encrypted[packetSize];
       LoRa.readBytes(encrypted, packetSize);
 
-      // 2. Criar buffer e desencriptar
       uint8_t decrypted[packetSize + 1];
       desencriptarAES(encrypted, decrypted, packetSize);
 
-      // 3. Remover o Padding PKCS#7 para restabelecer a String original
       int padLen = decrypted[packetSize - 1];
       int realLen = packetSize - (padLen < 16 ? padLen : 0);
       decrypted[realLen] = '\0'; 
@@ -112,35 +108,49 @@ void loop() {
 
       display.clearDisplay();
       display.setCursor(0,0);
+      display.print("Bateria: "); display.print(percBateria); display.println("%");
+      display.println("---------------------");
       display.println("Pacote Recebido!");
       display.print("RSSI: "); display.println(rssi);
       display.display();
+
+   float vBatPin = analogReadMilliVolts(PINO_BAT) / 1000.0;
+   float vBateria = vBatPin * 2.0; 
+   int percBateria = 0;
+   if (vBateria >= 4.2) percBateria = 100;
+   else if (vBateria <= 3.3) percBateria = 0;
+   else percBateria = (vBateria - 3.3) / (4.2 - 3.3) * 100;
 
       Serial.println("\n--- Nova Mensagem LoRa Protegida ---");
       Serial.print("Sinal (RSSI): "); Serial.print(rssi); Serial.println(" dBm");
       Serial.println("Texto Desencriptado: " + recebido);
 
-      // --- PARSE DA MENSAGEM (Split por '|') ---
+      // --- PARSE (Split para os 8 parâmetros da boia) ---
       int p1 = recebido.indexOf('|');
       int p2 = recebido.indexOf('|', p1 + 1);
       int p3 = recebido.indexOf('|', p2 + 1);
       int p4 = recebido.indexOf('|', p3 + 1);
       int p5 = recebido.indexOf('|', p4 + 1);
+      int p6 = recebido.indexOf('|', p5 + 1);
+      int p7 = recebido.indexOf('|', p6 + 1);
 
-      if (p1 != -1) {
-        String boiaMac = recebido.substring(0, p1);
-        String temp = recebido.substring(p1 + 1, p2);
-        String tds = recebido.substring(p2 + 1, p3);
-        String ec = recebido.substring(p3 + 1, p4);
-        String ph = recebido.substring(p4 + 1, p5);
-        String turb = recebido.substring(p5 + 1);
+      if (p1 != -1 && p6 != -1 && p7 != -1) {
+        String boiaMac  = recebido.substring(0, p1);
+        String temp     = recebido.substring(p1 + 1, p2);
+        String tds      = recebido.substring(p2 + 1, p3);
+        String ec       = recebido.substring(p3 + 1, p4);
+        String ph       = recebido.substring(p4 + 1, p5);
+        String turb     = recebido.substring(p5 + 1, p6);
+        String oxigenio = recebido.substring(p6 + 1, p7);
+        String bateria  = recebido.substring(p7 + 1);
 
-        // --- MONTAR JSON PARA A API ---
+        // --- MONTAR JSON PARA A API LARAVEL ---
         JsonDocument doc;
         doc["mac"] = boiaMac;
         doc["gateway"] = WiFi.macAddress();
-        doc["rssi"] = rssi;             
-        doc["bateria_pct"] = 100;
+        doc["rssi"] = rssi;            
+        doc["bateria_pct"] = bateria.toInt();
+        doc["bateria_gateway"] = percBateria;
 
         JsonArray leituras = doc.createNestedArray("leituras");
 
@@ -150,11 +160,13 @@ void loop() {
           obj["valor"] = val.toFloat();
         };
 
-        addReading(2, temp); // Temperatura
-        addReading(4, tds);  // TDS
-        addReading(6, ec);   // Condutividade
-        addReading(5, ph);   // pH
-        addReading(3, turb); // Turbidez
+        // Adiciona os 6 sensores com os mapeamentos de IDs corretos
+        addReading(1, oxigenio); // Oxigénio Dissolvido -> ID 1 conforme solicitado!
+        addReading(2, temp);     // Temperatura -> ID 2
+        addReading(3, turb);     // Turbidez -> ID 3
+        addReading(4, tds);      // TDS -> ID 4
+        addReading(5, ph);       // pH -> ID 5
+        addReading(6, ec);       // Condutividade (EC) -> ID 6
 
         String jsonPayload;
         serializeJson(doc, jsonPayload);
@@ -169,37 +181,31 @@ void loop() {
           int httpResponseCode = http.POST(jsonPayload);
 
           if (httpResponseCode == 201 || httpResponseCode == 200) {
-            Serial.println("[API] SUCESSO! Telemetria encriptada enviada e guardada.");
+            Serial.println("[API] SUCESSO! Telemetria completa enviada ao Laravel.");
             display.println("API OK!");
             display.display();
 
-                            // ==========================================
-                // LER A API E ENVIAR ORDEM (DOWNLINK)
-                // ==========================================
-                String respostaApi = http.getString();
-                JsonDocument docRes;
+            // Processamento do Downlink (Tempo de sono enviado pelo Laravel)
+            String respostaApi = http.getString();
+            JsonDocument docRes;
 
-                if (deserializeJson(docRes, respostaApi) == DeserializationError::Ok) {
-                   // A API do Laravel responde sempre com o objeto "configuracao"
-                   if (docRes.containsKey("configuracao")) {
-                      int novoIntervalo = docRes["configuracao"]["intervalo_segundos"];
+            if (deserializeJson(docRes, respostaApi) == DeserializationError::Ok) {
+               if (docRes.containsKey("configuracao")) {
+                  int novoIntervalo = docRes["configuracao"]["intervalo_segundos"];
 
-                      // O Gateway muda de "Ouvinte" para "Emissor"
-                      LoRa.beginPacket();
-                      LoRa.print(novoIntervalo); // Envia só o número para poupar bateria na boia
-                      LoRa.endPacket();
+                  LoRa.beginPacket();
+                  LoRa.print(novoIntervalo); 
+                  LoRa.endPacket();
 
-                      // IMPORTANTE: Obriga o Gateway a voltar a ouvir o ar imediatamente!
-                      LoRa.receive();
+                  LoRa.receive(); // Coloca o rádio de volta em modo escuta
 
-                      Serial.printf(">> Downlink enviado para a boia: Dormir por %d segundos.\n",
-  novoIntervalo);
-                   }
-                }/////////
-           } else {
-             Serial.print("[API] ERRO ");
-             display.println("API ERRO!");
-             display.display();
+                  Serial.printf(">> Downlink enviado para a boia: Dormir por %d segundos.\n", novoIntervalo);
+               }
+            }
+          } else {
+            Serial.print("[API] ERRO ");
+            display.println("API ERRO!");
+            display.display();
             Serial.print(httpResponseCode);
             Serial.println(": " + http.getString());
           }
@@ -209,7 +215,7 @@ void loop() {
           WiFi.reconnect();
         }
       } else {
-        Serial.println("ERRO: Formato de pacote inválido pós-desencriptação.");
+        Serial.println("ERRO: Falha ao segmentar os 8 campos do pacote.");
       }
     }
 }

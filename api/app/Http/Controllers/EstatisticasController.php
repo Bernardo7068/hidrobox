@@ -35,7 +35,10 @@ class EstatisticasController extends Controller
         // Filtros Adicionais da Query
         if ($request->filled('boia_id')) $query->where('leituras.boia_id', $request->boia_id);
         if ($request->filled('data_inicio')) $query->where('leituras.data_hora', '>=', $request->data_inicio);
-        if ($request->filled('data_fim')) $query->where('leituras.data_hora', '<=', $request->data_fim);
+        if ($request->filled('data_fim')) {
+            $data_fim = strlen($request->data_fim) == 10 ? $request->data_fim . ' 23:59:59' : $request->data_fim;
+            $query->where('leituras.data_hora', '<=', $data_fim);
+        }
 
         $estatisticas = $query->with('tipoSensor')->get();
 
@@ -55,7 +58,10 @@ class EstatisticasController extends Controller
         }
         if ($request->filled('boia_id')) $telemetriaQuery->where('leituras.boia_id', $request->boia_id);
         if ($request->filled('data_inicio')) $telemetriaQuery->where('leituras.data_hora', '>=', $request->data_inicio);
-        if ($request->filled('data_fim')) $telemetriaQuery->where('leituras.data_hora', '<=', $request->data_fim);
+        if ($request->filled('data_fim')) {
+            $data_fim = strlen($request->data_fim) == 10 ? $request->data_fim . ' 23:59:59' : $request->data_fim;
+            $telemetriaQuery->where('leituras.data_hora', '<=', $data_fim);
+        }
 
         $telemetria = $telemetriaQuery->get();
 
@@ -68,8 +74,18 @@ class EstatisticasController extends Controller
                 DB::raw('DATE(data_hora) as data'),
                 'tipos_sensor.nome as sensor',
                 DB::raw('AVG(CAST(valor AS DECIMAL)) as media')
-            )
-            ->where('data_hora', '>=', now()->subDays(7));
+            );
+
+        if ($request->filled('data_inicio')) {
+            $temporalQuery->where('data_hora', '>=', $request->data_inicio);
+        } else {
+            $temporalQuery->where('data_hora', '>=', now()->subDays(7));
+        }
+
+        if ($request->filled('data_fim')) {
+            $data_fim = strlen($request->data_fim) == 10 ? $request->data_fim . ' 23:59:59' : $request->data_fim;
+            $temporalQuery->where('data_hora', '<=', $data_fim);
+        }
 
         if ($user->role !== 'super_admin') {
             $temporalQuery->where('zonas.empresa_id', $user->empresa_id);

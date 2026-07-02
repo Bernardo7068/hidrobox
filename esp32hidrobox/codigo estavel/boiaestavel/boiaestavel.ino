@@ -6,12 +6,13 @@
 #include <WiFi.h> // Apenas para ler o MAC Address único
 #include "DFRobot_ESP_EC.h"
 #include "DFRobot_ESP_PH.h"
+#include "EEPROM.h"
 
 // --- CONFIGURAÇÃO DE PINOS ---
 #define PINO_TEMP 14
 #define PINO_TDS  36
 #define PINO_TURB 39
-#define PINO_EC   4
+#define PINO_EC   34
 #define PH_PIN    35
 
 // Pinos LoRa (LilyGO LoRa32 / Heltec)
@@ -48,6 +49,7 @@ void setup() {
    Serial.println("MAC ID: " + mac);
 
    sensors.begin();
+   EEPROM.begin(64);
    ec.begin();
    ph.begin();
 
@@ -74,13 +76,17 @@ void loop() {
    float vTDS = analogRead(PINO_TDS) * 3.3 / 4095.0;
    float tds = (133.42 * pow(vTDS, 3) - 255.86 * pow(vTDS, 2) + 857.39 * vTDS) * 0.5;
 
-   float vEC = analogRead(PINO_EC) / 4095.0 * 3300.0;
+   float vECbase = analogRead(PINO_EC) / 4095.0 * 3300.0;
+   float vEC = vECbase * 1.475;
    float ecVal = ec.readEC(vEC, temp);
 
    float vPH = analogRead(PH_PIN) / 4095.0 * 3300.0;
    float phVal = ph.readPH(vPH, temp);
 
    int turb = map(analogRead(PINO_TURB), 4090, 10, 0, 3000);
+
+   ec.calibration(vEC, temp);
+   ph.calibration(vPH, temp);
 
    // --- CRIAR PACOTE COMPACTO ---
    String pacote = WiFi.macAddress() + "|" +

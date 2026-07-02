@@ -79,7 +79,7 @@ class UserController extends Controller
         try {
             Http::withHeaders([
                 'x-internal-token' => env('INTERNAL_API_SECRET', 'chave-secreta-interna-hidrobox')
-            ])->post('http://localhost:3001/api/broadcast', [
+            ])->post(env('WS_BROADCAST_URL', 'http://localhost:3001/api/broadcast'), [
                 'empresa_id' => $user->empresa_id ?? 'super_admin',
                 'event'      => 'perfil-atualizado',
                 'data'       => ['user_id' => $user->id, 'role' => $user->role]
@@ -109,7 +109,7 @@ class UserController extends Controller
         try {
             Http::withHeaders([
                 'x-internal-token' => env('INTERNAL_API_SECRET', 'chave-secreta-interna-hidrobox')
-            ])->post('http://localhost:3001/api/broadcast', [
+            ])->post(env('WS_BROADCAST_URL', 'http://localhost:3001/api/broadcast'), [
                 'empresa_id' => $user->empresa_id ?? 'super_admin',
                 'event'      => 'perfil-atualizado',
                 'data'       => ['user_id' => $user->id, 'role' => 'apagado']

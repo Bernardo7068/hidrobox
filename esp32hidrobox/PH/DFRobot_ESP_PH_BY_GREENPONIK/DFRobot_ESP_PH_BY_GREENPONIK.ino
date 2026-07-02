@@ -27,12 +27,19 @@
 
 #include "DFRobot_ESP_PH.h"
 #include "EEPROM.h"
+#include <Wire.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 
 DFRobot_ESP_PH ph;
 #define ESPADC 4096.0   //the esp Analog Digital Convertion value
 #define ESPVOLTAGE 3300 //the esp voltage supply value
-#define PH_PIN 35		//the esp gpio data pin number
+#define PH_PIN 25		//the esp gpio data pin number
+#define PINO_TEMP 14
 float voltage, phValue, temperature = 25;
+
+OneWire oneWire(PINO_TEMP);
+DallasTemperature sensors(&oneWire);
 
 void setup()
 {
@@ -43,6 +50,10 @@ void setup()
 
 void loop()
 {
+	sensors.requestTemperatures();
+   float temp = sensors.getTempCByIndex(0);
+   if (temp < -10 || temp > 80) temp = 25.0; 
+
 	static unsigned long timepoint = millis();
 	if (millis() - timepoint > 1000U) //time interval: 1s
 	{
@@ -54,14 +65,14 @@ void loop()
 		
 		//temperature = readTemperature();  // read your temperature sensor to execute temperature compensation
 		Serial.print("temperature:");
-		Serial.print(temperature, 1);
+		Serial.print(temp, 1);
 		Serial.println("^C");
 
-		phValue = ph.readPH(voltage, temperature); // convert voltage to pH with temperature compensation
+		phValue = ph.readPH(voltage, temp); // convert voltage to pH with temperature compensation
 		Serial.print("pH:");
 		Serial.println(phValue, 4);
 	}
-	ph.calibration(voltage, temperature); // calibration process by Serail CMD
+	ph.calibration(voltage, temp); // calibration process by Serail CMD
 }
 
 float readTemperature()

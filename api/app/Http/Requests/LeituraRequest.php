@@ -16,7 +16,8 @@ class LeituraRequest extends FormRequest
         return [
             'mac' => 'required|string', // Retirado o 'exists' para permitir auto-discovery
             'gateway' => 'nullable|string', // MAC do Gateway (opcional)
-            'bateria_pct' => 'nullable|integer|between:0,100', // Bateria opcional
+            'bateria_pct' => 'nullable|integer|between:0,100', // Bateria opcional da boia
+            'bateria_gateway' => 'nullable|integer|between:0,100', // Bateria opcional do gateway
             'rssi' => 'nullable|integer', // Força do sinal LoRa
             'leituras' => 'required|array|min:1', // Tem de enviar pelo menos 1 leitura
             'leituras.*.tipo_sensor_id' => 'required|integer', // Permite auto-discovery de novos IDs

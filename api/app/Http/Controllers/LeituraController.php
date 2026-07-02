@@ -28,11 +28,12 @@ class LeituraController extends Controller
             $gatewayExistente = DB::table('gateways')->where('mac_gateway', $request->gateway)->exists();
             if (!$gatewayExistente) {
                 // Se o gateway não existe, criamos um registo "pendente" na infraestrutura
-                DB::table('gateways')->insertOrIgnore([
+                $novoGatewayId = DB::table('gateways')->insertGetId([
                     'mac_gateway' => $request->gateway,
                     'nome' => 'Gateway Descoberto (' . substr($request->gateway, -5) . ')',
                     'estado' => 'pendente', // Estado especial para o Frontend
                     'raio_cobertura' => 1000,
+                    'bateria' => $request->bateria_gateway ?? 100,
                     'created_at' => now(),
                     'updated_at' => now()
                 ]);
@@ -55,6 +56,24 @@ class LeituraController extends Controller
                 'zona_id' => $zonaDefault ? $zonaDefault->id : 1, 
                 'bateria' => $validated['bateria_pct'] ?? 100
             ]);
+
+            // Gerar alerta para a nova Boia
+            Alerta::create([
+                'boia_id'    => $boia->id,
+                'gravidade'  => 'media',
+                'descricao'  => "Nova Boia ({$boia->mac_boia}) detetada e a aguardar parametrização.",
+                'resolvido'  => false
+            ]);
+
+            // Se o gateway também foi acabado de detetar, gera o alerta associado a esta boia
+            if (isset($novoGatewayId)) {
+                Alerta::create([
+                    'boia_id'    => $boia->id,
+                    'gravidade'  => 'media',
+                    'descricao'  => "Novo Gateway ({$request->gateway}) detetado e a aguardar parametrização.",
+                    'resolvido'  => false
+                ]);
+            }
 
             return response()->json([
                 'sucesso' => true,
@@ -83,10 +102,56 @@ class LeituraController extends Controller
                 $gatewayId = DB::table('gateways')->where('mac_gateway', $request->gateway)->value('id');
                 if ($gatewayId) {
                     $updateData['gateway_id'] = $gatewayId;
+                    
+                    // Atualiza a bateria do gateway se enviada
+                    if ($request->has('bateria_gateway')) {
+                        DB::table('gateways')->where('id', $gatewayId)->update([
+                            'bateria' => $request->bateria_gateway,
+                            'updated_at' => now()
+                        ]);
+                        
+                        // Gerar alerta se a bateria do gateway estiver crítica (<= 20%)
+                        if ($request->bateria_gateway <= 20) {
+                            $alertaGatewayExistente = Alerta::where('boia_id', $boia_id)
+                                ->where('resolvido', 0)
+                                ->whereNull('leitura_id')
+                                ->where('descricao', 'like', '%Bateria do Gateway%')
+                                ->exists();
+
+                            if (!$alertaGatewayExistente) {
+                                Alerta::create([
+                                    'boia_id'    => $boia_id,
+                                    'gravidade'  => 'alta',
+                                    'descricao'  => "A Bateria do Gateway ({$request->gateway}) está fraca ({$request->bateria_gateway}%).",
+                                    'resolvido'  => false
+                                ]);
+                                $alertasGerados++;
+                            }
+                        }
+                    }
                 }
             }
             if ($request->has('bateria_pct')) {
                 $updateData['bateria'] = $request->bateria_pct;
+                
+                // Gerar alerta se a bateria da boia estiver crítica (<= 20%)
+                if ($request->bateria_pct <= 20) {
+                    $alertaBoiaExistente = Alerta::where('boia_id', $boia_id)
+                        ->where('resolvido', 0)
+                        ->whereNull('leitura_id')
+                        ->where('descricao', 'like', '%Bateria da Estação Remota%')
+                        ->exists();
+
+                    if (!$alertaBoiaExistente) {
+                        Alerta::create([
+                            'boia_id'    => $boia_id,
+                            'gravidade'  => 'media',
+                            'descricao'  => "A Bateria da Estação Remota está fraca ({$request->bateria_pct}%). Considere verificar a alimentação.",
+                            'resolvido'  => false
+                        ]);
+                        $alertasGerados++;
+                    }
+                }
             }
             if ($request->has('rssi')) {
                 $updateData['rssi_ultimo'] = $request->rssi;
@@ -130,6 +195,24 @@ class LeituraController extends Controller
                         'is_configurado' => false, 
                         'ultima_manutencao' => now()
                     ]);
+                    
+                    // GERAR ALERTA DE PARAMETRIZAÇÃO DO SENSOR
+                    $alertaParamSensor = Alerta::where('boia_id', $boia_id)
+                        ->where('resolvido', 0)
+                        ->whereNull('leitura_id')
+                        ->where('descricao', 'like', "%O sensor {$sensorMestre->nome}%aguarda parametrização%")
+                        ->exists();
+
+                    if (!$alertaParamSensor) {
+                        Alerta::create([
+                            'boia_id'    => $boia_id,
+                            'gravidade'  => 'media',
+                            'descricao'  => "O sensor {$sensorMestre->nome} da boia {$boia->nome} aguarda parametrização de limites.",
+                            'resolvido'  => false
+                        ]);
+                        $alertasGerados++;
+                    }
+
                     continue; 
                 }
 
@@ -180,13 +263,13 @@ class LeituraController extends Controller
                     // Notificar empresa
                     \Illuminate\Support\Facades\Http::withHeaders([
                         'x-internal-token' => env('INTERNAL_API_SECRET', 'chave-secreta-interna-hidrobox')
-                    ])->timeout(2)->post('http://localhost:3001/api/broadcast', $payloadLeitura);
+                    ])->timeout(2)->post(env('WS_BROADCAST_URL', 'http://localhost:3001/api/broadcast'), $payloadLeitura);
                     
                     // Notificar super_admin
                     $payloadLeitura['empresa_id'] = 'super_admin';
                     \Illuminate\Support\Facades\Http::withHeaders([
                         'x-internal-token' => env('INTERNAL_API_SECRET', 'chave-secreta-interna-hidrobox')
-                    ])->timeout(2)->post('http://localhost:3001/api/broadcast', $payloadLeitura);
+                    ])->timeout(2)->post(env('WS_BROADCAST_URL', 'http://localhost:3001/api/broadcast'), $payloadLeitura);
 
                     // Se houve alertas gerados, enviamos um evento específico
                     if ($alertasGerados > 0) {
@@ -197,12 +280,12 @@ class LeituraController extends Controller
                         ];
                         \Illuminate\Support\Facades\Http::withHeaders([
                             'x-internal-token' => env('INTERNAL_API_SECRET', 'chave-secreta-interna-hidrobox')
-                        ])->timeout(2)->post('http://localhost:3001/api/broadcast', $payloadAlerta);
+                        ])->timeout(2)->post(env('WS_BROADCAST_URL', 'http://localhost:3001/api/broadcast'), $payloadAlerta);
                         
                         $payloadAlerta['empresa_id'] = 'super_admin';
                         \Illuminate\Support\Facades\Http::withHeaders([
                             'x-internal-token' => env('INTERNAL_API_SECRET', 'chave-secreta-interna-hidrobox')
-                        ])->timeout(2)->post('http://localhost:3001/api/broadcast', $payloadAlerta);
+                    ])->timeout(2)->post(env('WS_BROADCAST_URL', 'http://localhost:3001/api/broadcast'), $payloadAlerta);
                     }
                 }
             } catch (\Exception $wsException) {

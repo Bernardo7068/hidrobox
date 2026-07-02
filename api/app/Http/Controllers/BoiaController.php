@@ -202,7 +202,9 @@ class BoiaController extends Controller
             'valor_minimo' => 'required|numeric',
             'valor_maximo' => 'required|numeric',
             'status' => 'nullable|string|in:ativo,erro,calibracao,desconectado',
-            'dias_proxima_manutencao' => 'nullable|integer'
+            'dias_proxima_manutencao' => 'nullable|integer',
+            'intervalo_limpeza_dias' => 'nullable|integer',
+            'intervalo_calibracao_dias' => 'nullable|integer'
         ]);
 
         $boia = Boia::with('zona')->find($validated['boia_id']);
@@ -223,6 +225,8 @@ class BoiaController extends Controller
                 'status' => $validated['status'] ?? 'ativo',
                 'ultima_manutencao' => now(), // Assume-se que se está a configurar/calibrar, houve manutenção
                 'dias_proxima_manutencao' => $validated['dias_proxima_manutencao'] ?? 180,
+                'intervalo_limpeza_dias' => $validated['intervalo_limpeza_dias'] ?? 30,
+                'intervalo_calibracao_dias' => $validated['intervalo_calibracao_dias'] ?? 180,
                 'is_configurado' => true // Validado pelo humano
             ]
         );
@@ -295,6 +299,34 @@ class BoiaController extends Controller
         }
 
         return response()->json(['sucesso' => true, 'manutencao' => $manutencao], 201);
+    }
+
+    public function atualizarCiclos(Request $request, $id)
+    {
+        $user = $request->user();
+        $boia = Boia::with('zona')->findOrFail($id);
+
+        if ($user && $user->role !== 'super_admin' && $boia->zona->empresa_id !== $user->empresa_id) {
+            return response()->json(['sucesso' => false, 'mensagem' => 'Acesso negado.'], 403);
+        }
+
+        $validated = $request->validate([
+            'tipo_sensor_id' => 'required|integer|exists:tipos_sensor,id',
+            'intervalo_limpeza_dias' => 'required|integer|min:1',
+            'intervalo_calibracao_dias' => 'required|integer|min:1',
+            'dias_proxima_manutencao' => 'required|integer|min:1'
+        ]);
+
+        \DB::table('limites_sensores')
+            ->where('boia_id', $boia->id)
+            ->where('tipo_sensor_id', $validated['tipo_sensor_id'])
+            ->update([
+                'intervalo_limpeza_dias' => $validated['intervalo_limpeza_dias'],
+                'intervalo_calibracao_dias' => $validated['intervalo_calibracao_dias'],
+                'dias_proxima_manutencao' => $validated['dias_proxima_manutencao']
+            ]);
+
+        return response()->json(['sucesso' => true, 'mensagem' => 'Ciclos de manutenção atualizados com sucesso.']);
     }
 
     public function update(Request $request, $id)
