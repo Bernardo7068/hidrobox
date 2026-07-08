@@ -97,7 +97,7 @@ const isOverdue = (lastDate, days) => {
     return nextDate < new Date();
 };
 
-export default function GestaoEquipamentos({ isHelpMode }) {
+export default function GestaoEquipamentos({ isHelpMode, onAtualizar }) {
     // Simulação de obtenção do utilizador do sessionStorage (ou contexto)
     const user = JSON.parse(sessionStorage.getItem('user') || '{"role": "leitor_empresa"}');
     const isSuperAdmin = user.role === 'super_admin';
@@ -121,6 +121,15 @@ export default function GestaoEquipamentos({ isHelpMode }) {
 
     // Novo estado para criação de gateway
     const [formGateway, setFormGateway] = useState({ mac_gateway: '', nome: '', latitude: '', longitude: '', raio_cobertura: 1000 });
+    // Estado para edição de gateway
+    const [editandoGatewayId, setEditandoGatewayId] = useState(null);
+    const [formEditGateway, setFormEditGateway] = useState({});
+
+    // Estados para Gestão de Zonas
+    const [isModalZonasOpen, setIsModalZonasOpen] = useState(false);
+    const [formNovaZona, setFormNovaZona] = useState({ nome: '', concelho: '' });
+    const [editandoZonaId, setEditandoZonaId] = useState(null);
+    const [formEditZona, setFormEditZona] = useState({ nome: '', concelho: '' });
 
     // Lógica para calcular missões pendentes (necessária para o badge da aba)
     const getMissionsCount = () => {
@@ -250,7 +259,8 @@ export default function GestaoEquipamentos({ isHelpMode }) {
     useEffect(() => { 
         carregarDadosIniciais(); 
         
-        const wsUrl = import.meta.env.VITE_WS_URL || 'http://localhost:3001';
+        const hostname = window.location.hostname;
+        const wsUrl = import.meta.env.VITE_WS_URL || `http://${hostname}:3001`;
         const socket = io(wsUrl);
 
         socket.on('connect', () => {
@@ -308,6 +318,7 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                 const boiaAtualizada = boiasComLeituras.find(b => b.id === boiaDetalhe.id);
                 if (boiaAtualizada) setBoiaDetalhe(boiaAtualizada);
             }
+            if (onAtualizar) onAtualizar();
         } catch (error) {
             console.error('Erro ao carregar dados:', error);
         }
@@ -323,6 +334,17 @@ export default function GestaoEquipamentos({ isHelpMode }) {
         } catch (error) { mostrarMensagem('Erro ao registar gateway.', 'erro'); }
     };
 
+    const guardarEdicaoGateway = async (id) => {
+        try {
+            await api.put(`/gateways/${id}`, formEditGateway);
+            mostrarMensagem('Torre atualizada com sucesso!', 'sucesso');
+            setEditandoGatewayId(null);
+            carregarDadosIniciais();
+        } catch (e) {
+            mostrarMensagem('Erro ao atualizar a torre.', 'erro');
+        }
+    };
+
     const recalibrarRaioGateway = async (gw) => {
         try {
             const minhasBoias = boias.filter(b => b.mac_gateway === gw.mac_gateway && b.latitude && b.longitude && b.rssi_ultimo);
@@ -331,13 +353,37 @@ export default function GestaoEquipamentos({ isHelpMode }) {
             const boiasEstaveis = minhasBoias.filter(b => b.rssi_ultimo > -115);
             if (boiasEstaveis.length === 0) return mostrarMensagem('Sinal crítico em todas as boias.', 'erro');
 
-            const distancias = boiasEstaveis.map(b => {
+            // Matemática de Rádio Frequência (Path Loss) para estimar cobertura máxima teórica
+            const projecoes = boiasEstaveis.map(b => {
                 if (!gw.latitude || !gw.longitude) return 0;
-                return calculateDistance(Number(gw.latitude), Number(gw.longitude), Number(b.latitude), Number(b.longitude));
+                const dCurrent = calculateDistance(Number(gw.latitude), Number(gw.longitude), Number(b.latitude), Number(b.longitude));
+                
+                // Se a boia estiver demasiado perto, assumimos 10m para a matemática não devolver zero
+                const dEfetivo = Math.max(dCurrent, 10);
+                
+                // O limite crítico em LoRaWAN para perder pacotes ronda os -120 dBm
+                const rssiMin = -120;
+                const rssiAtual = b.rssi_ultimo;
+                
+                // Margem de sinal que ainda temos para gastar (ex: se sinal é -90, temos 30dBm de margem)
+                const margemDb = rssiAtual - rssiMin; 
+                
+                if (margemDb <= 0) return dEfetivo;
+                
+                // Usamos n=3 (Path Loss Exponent) para cenários rurais/água sem linha de visão perfeita
+                // Fórmula: d_max = d_atual * 10^( Margem_dB / (10 * n) )
+                const pathLossExponent = 3.0;
+                const multiplicadorDistancia = Math.pow(10, margemDb / (10 * pathLossExponent));
+                
+                let maxProjected = dEfetivo * multiplicadorDistancia;
+                
+                // Limitamos o alcance máximo teórico da antena a 15km para ser realista com a curvatura da terra/obstáculos
+                return Math.min(maxProjected, 15000);
             });
 
-            const maxDist = Math.max(...distancias);
-            const raioSeguro = Math.ceil(maxDist * 1.1); 
+            // Adotamos a abordagem conservadora: escolhemos a menor das projeções para desenhar um raio onde o sinal está garantido
+            let raioSeguro = Math.ceil(Math.min(...projecoes));
+            if (raioSeguro < 500) raioSeguro = 500; // Mínimo garantido de 500m de raio no mapa 
 
             await api.put(`/gateways/${gw.id}`, { ...gw, raio_cobertura: raioSeguro });
             mostrarMensagem(`Hub "${gw.nome}" calibrado para ${raioSeguro}m.`, 'sucesso');
@@ -353,6 +399,45 @@ export default function GestaoEquipamentos({ isHelpMode }) {
             await api.delete(`/gateways/${id}`);
             carregarDadosIniciais();
         } catch (error) { console.error(error); }
+    };
+
+    // --- FUNÇÕES DE ZONAS ---
+    const handleCriarZona = async (e) => {
+        e.preventDefault();
+        try {
+            await api.post('/zonas', formNovaZona);
+            mostrarMensagem('Zona de monitorização criada!', 'sucesso');
+            setFormNovaZona({ nome: '', concelho: '' });
+            carregarDadosIniciais();
+        } catch (error) {
+            mostrarMensagem('Erro ao criar zona.', 'erro');
+        }
+    };
+
+    const guardarEdicaoZona = async (id) => {
+        try {
+            await api.put(`/zonas/${id}`, formEditZona);
+            mostrarMensagem('Zona atualizada com sucesso!', 'sucesso');
+            setEditandoZonaId(null);
+            carregarDadosIniciais();
+        } catch (error) {
+            mostrarMensagem('Erro ao atualizar zona.', 'erro');
+        }
+    };
+
+    const removerZona = async (id) => {
+        if (!window.confirm('Tem a certeza que deseja eliminar esta zona?')) return;
+        try {
+            await api.delete(`/zonas/${id}`);
+            mostrarMensagem('Zona eliminada com sucesso!', 'sucesso');
+            carregarDadosIniciais();
+        } catch (error) {
+            if (error.response?.data?.message) {
+                mostrarMensagem(error.response.data.message, 'erro');
+            } else {
+                mostrarMensagem('Erro ao eliminar zona.', 'erro');
+            }
+        }
     };
 
     const mostrarMensagem = (texto, tipo) => {
@@ -666,10 +751,10 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                 {subAba === 'inventario' && (
                     <div className="space-y-16 relative">
                         {isHelpMode && <HelpPin text="🖥️ Monitorização: Aqui podes ver os dados em tempo real de todas as tuas estações. Clica num cartão para abrir a Ficha Técnica da boia." className="absolute top-4 left-4" position="right" />}
-                        <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-4">
+                        <header className="flex flex-col md:flex-row md:items-end justify-between gap-4 md:gap-6 px-4">
                             <div>
-                                <h2 className="text-5xl font-black text-slate-800 tracking-tight">Lista de Dispositivos</h2>
-                                <p className="text-slate-400 font-medium text-lg mt-2 italic">Controlo e estado de conservação das boias</p>
+                                <h2 className="text-3xl md:text-5xl font-black text-slate-800 tracking-tight leading-none">Lista de Dispositivos</h2>
+                                <p className="text-slate-400 font-medium text-sm md:text-lg mt-2 italic">Controlo e estado de conservação das boias</p>
                             </div>
                             <div className="flex gap-4">
                                 <div className="bg-white px-6 py-3 rounded-2xl shadow-sm border border-slate-100 text-[10px] font-black text-slate-500 uppercase tracking-widest">
@@ -681,14 +766,25 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                         {boiasPorZona.map(zona => (
                             <div key={zona.id} className="space-y-8">
                                 <div className="flex items-center gap-6 px-4">
-                                    <div className="w-12 h-12 bg-indigo-800 text-white rounded-2xl flex items-center justify-center text-2xl shadow-lg shadow-indigo-100 font-black">
+                                    <div className="w-10 h-10 md:w-12 md:h-12 bg-indigo-800 text-white rounded-xl md:rounded-2xl flex items-center justify-center text-xl md:text-2xl shadow-lg shadow-indigo-100 font-black shrink-0">
                                         {zona.nome.charAt(0)}
                                     </div>
                                     <div>
-                                        <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">{zona.nome}</h3>
-                                        <p className="text-sm font-black text-slate-400 uppercase tracking-[0.3em]">{zona.concelho} • {zona.instalacoes.length} Unidades</p>
+                                        <h3 className="text-xl md:text-2xl font-black text-slate-800 uppercase tracking-tighter">{zona.nome}</h3>
+                                        <p className="text-[10px] md:text-sm font-black text-slate-400 uppercase tracking-[0.2em] md:tracking-[0.3em]">{zona.concelho} • {zona.instalacoes.length} Unidades</p>
                                     </div>
                                     <div className="flex-1 h-[2px] bg-slate-100"></div>
+                                    {(isAdmin || isTecnico) && (
+                                        <div className="flex gap-2">
+                                            <button 
+                                                onClick={() => { setIsModalZonasOpen(true); setEditandoZonaId(zona.id); setFormEditZona({...zona}); }} 
+                                                className="p-2 text-amber-500 bg-amber-50 rounded-lg hover:bg-amber-100 transition-colors"
+                                                title="Editar Zona"
+                                            >
+                                                ✏️ Editar Zona
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="grid grid-cols-1 gap-8">
@@ -743,7 +839,7 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                                                         });
                                                     }
                                                 }}
-                                                className={`${cardClass} p-10 hover:border-blue-300 transition-all hover:shadow-2xl hover:shadow-blue-900/10 cursor-pointer group relative`}
+                                                className={`${cardClass} p-5 md:p-10 hover:border-blue-300 transition-all hover:shadow-2xl hover:shadow-blue-900/10 cursor-pointer group relative`}
                                             >
                                                 {/* Indicador de Estado e Energia */}
                                                 <div className="flex flex-wrap items-center justify-between gap-4 mb-8 pb-6 border-b border-slate-100">
@@ -777,7 +873,7 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                                                     </div>
                                                 </div>
 
-                                                <div className="flex flex-col lg:flex-row gap-12">
+                                                <div className="flex flex-col lg:flex-row gap-6 lg:gap-12">
                                                     {/* Secção de Info */}
                                                     <div className="lg:w-1/3 space-y-6">
                                                         <div className="space-y-2">
@@ -1090,7 +1186,16 @@ export default function GestaoEquipamentos({ isHelpMode }) {
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                     <div className="md:col-span-2">
-                                        <label className={labelClass}>Zona de Monitorização</label>
+                                        <div className="flex justify-between items-center mb-2">
+                                            <label className="text-[10px] md:text-xs font-black text-slate-500 uppercase tracking-[0.2em] mb-0">Zona de Monitorização</label>
+                                            <button 
+                                                type="button" 
+                                                onClick={() => setIsModalZonasOpen(true)}
+                                                className="text-[10px] text-blue-500 hover:text-blue-700 font-black uppercase tracking-widest bg-blue-50 hover:bg-blue-100 px-3 py-1 rounded-full transition-colors"
+                                            >
+                                                ⚙️ Gerir Zonas
+                                            </button>
+                                        </div>
                                         <select 
                                             required value={formBoia.zona_id} 
                                             onChange={e => setFormBoia({ ...formBoia, zona_id: e.target.value })}
@@ -1848,10 +1953,20 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                                     <MapContainer center={[39.7436, -8.8071]} zoom={13} style={{ height: '100%', width: '100%' }}>
                                         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                                         
-                                        {/* Captura de clique para novo Gateway */}
+                                        {/* Captura de clique para novo Gateway ou Edição */}
                                         <LocationMarker 
-                                            position={formGateway.latitude && formGateway.longitude ? [formGateway.latitude, formGateway.longitude] : null}
-                                            setPosition={(pos) => setFormGateway({...formGateway, latitude: pos.lat.toFixed(6), longitude: pos.lng.toFixed(6)})} 
+                                            position={
+                                                editandoGatewayId 
+                                                    ? (formEditGateway.latitude && formEditGateway.longitude ? [formEditGateway.latitude, formEditGateway.longitude] : null)
+                                                    : (formGateway.latitude && formGateway.longitude ? [formGateway.latitude, formGateway.longitude] : null)
+                                            }
+                                            setPosition={(pos) => {
+                                                if (editandoGatewayId) {
+                                                    setFormEditGateway({...formEditGateway, latitude: pos.lat.toFixed(6), longitude: pos.lng.toFixed(6)});
+                                                } else {
+                                                    setFormGateway({...formGateway, latitude: pos.lat.toFixed(6), longitude: pos.lng.toFixed(6)});
+                                                }
+                                            }} 
                                         />
 
                                         {/* Desenhar Gateways e seus raios */}
@@ -1863,8 +1978,23 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                                                             <Popup>
                                                                 <div className="p-2 font-black">
                                                                     <div className="text-blue-600 uppercase text-[10px] tracking-widest">Gateway Ativo</div>
-                                                                    <div className="text-lg">{gw.nome}</div>
-                                                                    <div className="text-sm text-slate-400 mt-1">MAC: {gw.mac_gateway}</div>
+                                                                    <div className="text-lg text-slate-800">{gw.nome}</div>
+                                                                    <div className="mt-3 space-y-1.5">
+                                                                        <div className="text-xs text-slate-500 uppercase tracking-widest flex justify-between gap-4 border-b border-slate-100 pb-1.5">
+                                                                            <span>MAC Addr:</span> <span className="font-mono text-slate-700">{gw.mac_gateway}</span>
+                                                                        </div>
+                                                                        <div className="text-xs text-slate-500 uppercase tracking-widest flex justify-between gap-4 pt-1.5">
+                                                                            <span>GPS:</span> <span className="font-mono text-slate-700">{Number(gw.latitude).toFixed(5)}, {Number(gw.longitude).toFixed(5)}</span>
+                                                                        </div>
+                                                                    </div>
+                                                                    <a 
+                                                                        href={`https://www.google.com/maps?q=${gw.latitude},${gw.longitude}`}
+                                                                        target="_blank"
+                                                                        rel="noreferrer"
+                                                                        className="block mt-4 text-center bg-indigo-600 text-white py-2.5 rounded-lg text-xs font-black uppercase tracking-widest hover:bg-indigo-700 transition-colors shadow-md"
+                                                                    >
+                                                                        Navegar GPS 🗺️
+                                                                    </a>
                                                                 </div>
                                                             </Popup>
                                                         </Marker>
@@ -1890,15 +2020,40 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                                                 <React.Fragment key={`boia-infra-${boia.id}`}>
                                                     <Marker position={[boia.latitude, boia.longitude]}>
                                                         <Popup>
-                                                            <div className="p-2 font-black">
+                                                            <div className="p-2 font-black min-w-[200px]">
                                                                 <div className="text-sm uppercase text-slate-400 tracking-widest">Estação Remota</div>
-                                                                <div className="text-lg">{boia.nome}</div>
+                                                                <div className="text-lg text-slate-800 mb-2">{boia.nome}</div>
+                                                                
+                                                                <div className="space-y-1.5 bg-slate-50 p-3 rounded-lg border border-slate-100 mb-2 mt-3">
+                                                                    <div className="text-xs text-slate-500 uppercase tracking-widest flex justify-between gap-2 border-b border-slate-200 pb-1.5">
+                                                                        <span>MAC:</span> <span className="font-mono text-slate-700">{boia.mac_boia}</span>
+                                                                    </div>
+                                                                    <div className="text-xs text-slate-500 uppercase tracking-widest flex justify-between gap-2 border-b border-slate-200 py-1.5">
+                                                                        <span>GPS:</span> <span className="font-mono text-slate-700">{Number(boia.latitude).toFixed(5)}, {Number(boia.longitude).toFixed(5)}</span>
+                                                                    </div>
+                                                                    <div className="text-xs text-slate-500 uppercase tracking-widest flex justify-between gap-2 pt-1.5">
+                                                                        <span>Sinal (RSSI):</span> 
+                                                                        <span className={`font-mono ${boia.rssi_ultimo > -100 ? 'text-emerald-500' : (boia.rssi_ultimo > -120 ? 'text-amber-500' : 'text-rose-500')}`}>
+                                                                            {boia.rssi_ultimo ? `${boia.rssi_ultimo} dBm` : 'N/D'}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+
                                                                 {meuGateway && (
-                                                                    <div className={`mt-2 p-2 rounded-lg text-[10px] ${foraDeAlcance ? 'bg-rose-500 text-white animate-pulse' : 'bg-slate-100 text-slate-600'}`}>
+                                                                    <div className={`p-2 rounded-lg text-[10px] ${foraDeAlcance ? 'bg-rose-500 text-white animate-pulse' : 'bg-blue-50 text-blue-600 border border-blue-100'} mb-3`}>
                                                                         📡 Distância ao Hub: {Math.round(dist)}m
                                                                         {foraDeAlcance && <div className="font-black uppercase mt-1">⚠️ Fora de Alcance!</div>}
                                                                     </div>
                                                                 )}
+                                                                
+                                                                <a 
+                                                                    href={`https://www.google.com/maps?q=${boia.latitude},${boia.longitude}`}
+                                                                    target="_blank"
+                                                                    rel="noreferrer"
+                                                                    className="block text-center bg-indigo-600 text-white py-2.5 rounded-lg text-xs font-black uppercase tracking-widest hover:bg-indigo-700 transition-colors shadow-md"
+                                                                >
+                                                                    Navegar GPS 🗺️
+                                                                </a>
                                                             </div>
                                                         </Popup>
                                                     </Marker>
@@ -1927,6 +2082,24 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                                 {/* Grid de Cards de Gateways */}
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     {gateways.map(gw => (
+                                        editandoGatewayId === gw.id ? (
+                                            <div key={gw.id} className={`${cardClass} p-8 flex flex-col justify-between border-l-8 border-amber-500`}>
+                                                <h4 className="text-xl font-black mb-4 text-slate-800">Editar Torre: {gw.nome}</h4>
+                                                <div className="space-y-4">
+                                                    <input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-black text-slate-800" placeholder="Nome" value={formEditGateway.nome || ''} onChange={e => setFormEditGateway({...formEditGateway, nome: e.target.value})} />
+                                                    <input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-black text-slate-800" placeholder="MAC Address" value={formEditGateway.mac_gateway || ''} onChange={e => setFormEditGateway({...formEditGateway, mac_gateway: e.target.value})} />
+                                                    <div className="flex gap-2">
+                                                        <input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-black text-slate-800" placeholder="Latitude" value={formEditGateway.latitude || ''} onChange={e => setFormEditGateway({...formEditGateway, latitude: e.target.value})} />
+                                                        <input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-black text-slate-800" placeholder="Longitude" value={formEditGateway.longitude || ''} onChange={e => setFormEditGateway({...formEditGateway, longitude: e.target.value})} />
+                                                    </div>
+                                                    <p className="text-[10px] text-amber-600 font-bold uppercase tracking-widest bg-amber-50 p-2 rounded-lg">📍 Dica: Clica no mapa ali em cima para atualizar as coordenadas automaticamente.</p>
+                                                    <div className="flex justify-end gap-4 mt-6">
+                                                        <button onClick={() => setEditandoGatewayId(null)} className="text-slate-400 font-black text-xs uppercase tracking-widest hover:text-slate-600 transition-colors">Cancelar</button>
+                                                        <button onClick={() => guardarEdicaoGateway(gw.id)} className="bg-amber-500 text-white px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-amber-500/30 hover:bg-amber-600 hover:shadow-amber-500/50 transition-all">Guardar Torre</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ) : (
                                         <div key={gw.id} className={`${cardClass} p-8 flex flex-col justify-between border-l-8 border-emerald-500`}>
                                             <div className="flex justify-between items-start">
                                                 <div>
@@ -1962,9 +2135,15 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                                                             </Tooltip>
                                                         )}
                                                         {isAdmin && (
-                                                            <Tooltip text="Remover este ponto de rede do sistema" position="left">
-                                                                <button onClick={() => removerGateway(gw.id)} className="text-rose-300 hover:text-rose-600 text-[10px] font-black uppercase tracking-widest transition-colors">Remover Torre 🗑️</button>
-                                                            </Tooltip>
+                                                            <div className="flex items-center gap-3">
+                                                                <Tooltip text="Editar informação e localização" position="left">
+                                                                    <button onClick={() => { setEditandoGatewayId(gw.id); setFormEditGateway({...gw}); }} className="text-amber-500 hover:text-amber-700 text-[10px] font-black uppercase tracking-widest transition-colors">Editar ✏️</button>
+                                                                </Tooltip>
+                                                                <span className="text-slate-200">|</span>
+                                                                <Tooltip text="Remover este ponto de rede do sistema" position="left">
+                                                                    <button onClick={() => removerGateway(gw.id)} className="text-rose-300 hover:text-rose-600 text-[10px] font-black uppercase tracking-widest transition-colors">Remover Torre 🗑️</button>
+                                                                </Tooltip>
+                                                            </div>
                                                         )}
                                                     </div>
                                                 </div>
@@ -2024,7 +2203,8 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                                                     )}
                                                 </div>
                                             </div>
-                                        </div>
+                                            </div>
+                                        )
                                     ))}
                                     {gateways.length === 0 && (
                                         <div className="col-span-2 p-12 text-center bg-slate-50 rounded-[2.5rem] border-2 border-dashed border-slate-200 text-slate-400 font-bold">
@@ -2647,6 +2827,66 @@ export default function GestaoEquipamentos({ isHelpMode }) {
                                 Submeter Relatório 🚀
                             </button>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL DE GESTÃO DE ZONAS */}
+            {isModalZonasOpen && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[2000] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col relative animate-fade-in-up">
+                        <div className="p-8 pb-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                            <div>
+                                <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Gerir Zonas</h3>
+                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Organização de Localizações</p>
+                            </div>
+                            <button onClick={() => setIsModalZonasOpen(false)} className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-slate-400 hover:text-slate-800 hover:bg-slate-200 transition-colors shadow-sm">
+                                ✕
+                            </button>
+                        </div>
+                        
+                        <div className="p-8 overflow-y-auto flex-1 bg-slate-50/50">
+                            {/* Formulário de Nova Zona */}
+                            <form onSubmit={handleCriarZona} className="mb-8 p-6 bg-white rounded-2xl shadow-sm border border-slate-100">
+                                <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Criar Nova Zona</h4>
+                                <div className="flex flex-col md:flex-row gap-4">
+                                    <input type="text" required placeholder="Nome da Zona (ex: Rio Lis)" value={formNovaZona.nome} onChange={e => setFormNovaZona({...formNovaZona, nome: e.target.value})} className={`${inputClass} flex-1`} />
+                                    <input type="text" placeholder="Concelho (ex: Leiria)" value={formNovaZona.concelho} onChange={e => setFormNovaZona({...formNovaZona, concelho: e.target.value})} className={`${inputClass} flex-1`} />
+                                    <button type="submit" className="bg-blue-600 text-white px-6 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-slate-900 transition-colors">Adicionar</button>
+                                </div>
+                            </form>
+
+                            {/* Lista de Zonas Existentes */}
+                            <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Zonas Existentes</h4>
+                            <div className="space-y-4">
+                                {zonas.map(z => (
+                                    editandoZonaId === z.id ? (
+                                        <div key={z.id} className="p-6 bg-amber-50 rounded-2xl border border-amber-200">
+                                            <div className="flex flex-col md:flex-row gap-4">
+                                                <input type="text" value={formEditZona.nome} onChange={e => setFormEditZona({...formEditZona, nome: e.target.value})} className={`${inputClass} flex-1`} />
+                                                <input type="text" value={formEditZona.concelho} onChange={e => setFormEditZona({...formEditZona, concelho: e.target.value})} className={`${inputClass} flex-1`} />
+                                            </div>
+                                            <div className="flex justify-end gap-3 mt-4">
+                                                <button onClick={() => setEditandoZonaId(null)} className="text-[10px] text-slate-400 font-black uppercase tracking-widest hover:text-slate-600">Cancelar</button>
+                                                <button onClick={() => guardarEdicaoZona(z.id)} className="bg-amber-500 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-amber-600">Guardar</button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div key={z.id} className="p-4 bg-white rounded-2xl border border-slate-100 flex items-center justify-between group shadow-sm hover:border-blue-200 transition-colors">
+                                            <div>
+                                                <h5 className="font-black text-slate-800">{z.nome}</h5>
+                                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{z.concelho}</span>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => {setEditandoZonaId(z.id); setFormEditZona({...z});}} className="p-2 text-amber-500 bg-amber-50 rounded-lg hover:bg-amber-100 transition-colors">✏️</button>
+                                                <button onClick={() => removerZona(z.id)} className="p-2 text-rose-500 bg-rose-50 rounded-lg hover:bg-rose-100 transition-colors">🗑️</button>
+                                            </div>
+                                        </div>
+                                    )
+                                ))}
+                                {zonas.length === 0 && <p className="text-center text-slate-400 text-sm font-bold italic py-4">Sem zonas registadas.</p>}
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}

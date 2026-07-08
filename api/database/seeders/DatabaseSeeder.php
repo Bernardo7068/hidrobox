@@ -15,6 +15,7 @@ class DatabaseSeeder extends Seeder
             EmpresaSeeder::class,
             UserRoleSeeder::class,
             ZonaSeeder::class,
+            GatewaySeeder::class,
             SensorSeeder::class,
             BoiaSeeder::class,
         ]);

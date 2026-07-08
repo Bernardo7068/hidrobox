@@ -87,7 +87,7 @@ export default function MapaBoias({ boias = [], gateways = [] }) {
                                         <div className="text-lg uppercase leading-tight">{gw.nome}</div>
                                         <div className="text-[10px] text-slate-400 font-mono mt-1">{gw.mac_gateway}</div>
                                         
-                                        <div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3">
+                                        <div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3 mb-2">
                                             <div className="bg-emerald-50 rounded-lg p-2 text-center">
                                                 <div className="text-[9px] text-emerald-600 uppercase tracking-widest">Alcance</div>
                                                 <div className="text-sm font-black text-emerald-900">{gw.raio_cobertura}m</div>
@@ -97,6 +97,17 @@ export default function MapaBoias({ boias = [], gateways = [] }) {
                                                 <div className="text-sm font-black text-blue-900">{connectedBoias} Boias</div>
                                             </div>
                                         </div>
+                                        <div className="text-xs text-slate-500 font-mono text-center bg-slate-50 py-1.5 rounded-md mt-2">
+                                            GPS: {Number(gw.latitude).toFixed(5)}, {Number(gw.longitude).toFixed(5)}
+                                        </div>
+                                        <a 
+                                            href={`https://www.google.com/maps?q=${gw.latitude},${gw.longitude}`}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="block mt-4 text-center bg-indigo-600 text-white py-2.5 rounded-lg text-xs font-black uppercase tracking-widest hover:bg-indigo-700 transition-colors shadow-md"
+                                        >
+                                            Navegar GPS 🗺️
+                                        </a>
                                     </div>
                                 </Popup>
                             </Marker>
@@ -135,7 +146,7 @@ export default function MapaBoias({ boias = [], gateways = [] }) {
                                             📍 {boia.localizacao_texto || 'Localização não definida'}
                                         </div>
                                         
-                                        <div className="flex gap-2 mb-3">
+                                        <div className="flex gap-2 mb-2">
                                             <div className="flex-1 bg-slate-50 border border-slate-100 rounded-lg p-2 text-center">
                                                 <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Bateria</div>
                                                 <div className={`text-sm font-black ${boia.bateria < 20 ? 'text-rose-600' : 'text-slate-800'}`}>{boia.bateria}%</div>
@@ -143,6 +154,17 @@ export default function MapaBoias({ boias = [], gateways = [] }) {
                                             <div className="flex-1 bg-slate-50 border border-slate-100 rounded-lg p-2 text-center">
                                                 <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Sinal</div>
                                                 <div className={`text-sm font-black ${foraDeAlcance ? 'text-rose-600' : 'text-slate-800'}`}>{boia.rssi_ultimo ? `${boia.rssi_ultimo} dBm` : '---'}</div>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 mb-3">
+                                            <div className="flex justify-between items-center text-xs mb-1.5">
+                                                <span className="font-bold text-slate-500 uppercase tracking-widest">MAC:</span>
+                                                <span className="font-mono text-slate-700 font-black">{boia.mac_boia}</span>
+                                            </div>
+                                            <div className="flex justify-between items-center text-xs">
+                                                <span className="font-bold text-slate-500 uppercase tracking-widest">GPS:</span>
+                                                <span className="font-mono text-slate-700 font-black">{Number(boia.latitude).toFixed(5)}, {Number(boia.longitude).toFixed(5)}</span>
                                             </div>
                                         </div>
 

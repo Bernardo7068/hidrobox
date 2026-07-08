@@ -11,6 +11,7 @@ use App\Http\Controllers\AuthController;
 
 use App\Http\Controllers\EmpresaController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\ZonaController;
 
 // 0. Autenticação e Utilizador
 Route::post('/login', [AuthController::class, 'login']);
@@ -32,6 +33,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // 1. Zonas e Sensores (Protegidos)
     Route::get('/zonas', [BoiaController::class, 'getZonas']);
+    Route::post('/zonas', [ZonaController::class, 'store'])->middleware('role:super_admin,admin_empresa');
+    Route::put('/zonas/{id}', [ZonaController::class, 'update'])->middleware('role:super_admin,admin_empresa');
+    Route::delete('/zonas/{id}', [ZonaController::class, 'destroy'])->middleware('role:super_admin,admin_empresa');
     Route::get('/tipos-sensor', [BoiaController::class, 'getTiposSensor']);
 
     // 2. Gestão de Boias (Protegidos)

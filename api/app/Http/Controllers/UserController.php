@@ -71,6 +71,7 @@ class UserController extends Controller
             'email'      => 'sometimes|email|unique:users,email,' . $id,
             'role'       => 'sometimes|in:admin_empresa,tecnico_empresa,leitor_empresa,super_admin',
             'empresa_id' => 'sometimes|nullable|exists:empresas,id',
+            'password'   => 'sometimes|string|min:6',
         ]);
 
         $user->update($validated);

@@ -10,6 +10,13 @@
     scroll-behavior: smooth;
   }
 
+  /* Aplica um "Zoom Out" perfeito em telemóveis reduzindo a escala base (rem) do Tailwind */
+  @media (max-width: 768px) {
+    html {
+      font-size: 9.6px; /* Reduz tudo a ~60% do tamanho normal (redução de 40%) */
+    }
+  }
+
   body {
     @apply bg-slate-50 text-slate-900;
   }

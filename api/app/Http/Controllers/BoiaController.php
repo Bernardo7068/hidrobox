@@ -346,13 +346,13 @@ class BoiaController extends Controller
         $validated = $request->validate([
             'nome'              => 'sometimes|string|max:255',
             'mac_boia'          => 'sometimes|string|unique:boias,mac_boia,' . $id,
-            'mac_gateway'       => 'sometimes|string',
-            'latitude'          => 'sometimes|numeric',
-            'longitude'         => 'sometimes|numeric',
+            'mac_gateway'       => 'sometimes|nullable|string',
+            'latitude'          => 'sometimes|nullable|numeric',
+            'longitude'         => 'sometimes|nullable|numeric',
             'zona_id'           => 'sometimes|integer|exists:zonas,id',
             'localizacao_texto' => 'nullable|string|max:255',
             'estado'            => 'sometimes|string|in:ativa,pendente,manutencao,erro,offline',
-            'bateria'           => 'sometimes|integer|min:0|max:100',
+            'bateria'           => 'sometimes|numeric|min:0|max:100',
             'intervalo_segundos' => 'sometimes|integer|min:10'
         ]);
 

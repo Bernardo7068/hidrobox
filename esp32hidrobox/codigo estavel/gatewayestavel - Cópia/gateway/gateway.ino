@@ -1,3 +1,4 @@
+
 #include <Arduino.h>
 #include <SPI.h>
 #include <LoRa.h>
@@ -24,8 +25,6 @@ const char* apiKey = "hidrobox_segredo_2026";
 // --- CONFIGURAÇÃO CHAVE AES ---
 const String aesKey = "HidroBoxKey2026!"; 
 
-
-
 // Pinos LoRa (LilyGO LoRa32 V3.0)
 #define SCK 5
 #define MISO 19
@@ -35,6 +34,30 @@ const String aesKey = "HidroBoxKey2026!";
 #define DIO0 26
 #define TCXO_EN 12
 #define PINO_BAT  35
+
+// Variável global para armazenar o estado da bateria
+int percBateria = 0; 
+
+// --- FUNÇÃO AUXILIAR 1: CALCULAR BATERIA SEM REPETIR LÓGICA ---
+int lerBateriaGateway() {
+    float vBatPin = analogReadMilliVolts(PINO_BAT) / 1000.0;
+    float vBateria = vBatPin * 2.0; 
+    if (vBateria >= 4.2) return 100;
+    if (vBateria <= 3.3) return 0;
+    return (vBateria - 3.3) / (4.2 - 3.3) * 100;
+}
+
+// --- FUNÇÃO AUXILIAR 2: DESENHAR O HEADER FIXO DA BATERIA POR CIMA DE TUDO ---
+void atualizarEcra(String linha1, String linha2 = "", String linha3 = "") {
+    display.clearDisplay();
+    display.setCursor(0,0);
+    display.print("Bateria: "); display.print(percBateria); display.println("%");
+    display.println("---------------------");
+    display.println(linha1);
+    if (linha2 != "") display.println(linha2);
+    if (linha3 != "") display.println(linha3);
+    display.display();
+}
 
 void desencriptarAES(const uint8_t* encryptedText, uint8_t* output, int len) {
    mbedtls_aes_context aes;
@@ -53,12 +76,11 @@ void setup() {
 
     if(display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
       display.setRotation(2);
-      display.clearDisplay();
       display.setTextSize(1);
       display.setTextColor(SSD1306_WHITE);
-      display.setCursor(0,0);
-      display.println("Gateway Iniciado");
-      display.display();
+      
+      percBateria = lerBateriaGateway();
+      atualizarEcra("Gateway Iniciado");
     }
 
     pinMode(TCXO_EN, OUTPUT);
@@ -72,8 +94,8 @@ void setup() {
       Serial.print(".");
     }
     Serial.println("\nWiFi Conectado!");
-    display.println("WiFi Conectado!");
-    display.display();
+    atualizarEcra("WiFi Conectado!");
+    
     Serial.print("MAC do Gateway: ");
     Serial.println(WiFi.macAddress());
 
@@ -83,12 +105,27 @@ void setup() {
       Serial.println("ERRO: Falha ao iniciar LoRa!");
       while(1);
     }
-    Serial.println("Gateway HidroBox (AES-128) à escuta...");
-    display.println("LoRa OK. A escuta...");
-    display.display();
+    Serial.println("Gateway HidroBox (AES-128) a escuta...");
+    atualizarEcra("LoRa OK. A escuta...");
 }
 
 void loop() {
+    static unsigned long tempoUltimoEcra = 0;
+
+    // --- 1. ATUALIZAÇÃO DE PANO DE FUNDO (A cada 5 segundos) ---
+    if (millis() - tempoUltimoEcra > 5000) {
+       tempoUltimoEcra = millis();
+       percBateria = lerBateriaGateway(); // Atualiza a variável global
+       
+       if (WiFi.status() != WL_CONNECTED) {
+           WiFi.reconnect(); 
+           atualizarEcra("A escuta LoRa...", "ALERTA: WiFi OFF!");
+       } else {
+           atualizarEcra("A escuta LoRa...");
+       }
+    }
+
+    // --- 2. RECEÇÃO LORA PACOTE A PACOTE ---
     int packetSize = LoRa.parsePacket();
 
     if (packetSize && packetSize % 16 == 0) {
@@ -105,21 +142,6 @@ void loop() {
       decrypted[realLen] = '\0'; 
 
       String recebido = String((char*)decrypted);
-
-      display.clearDisplay();
-      display.setCursor(0,0);
-      display.print("Bateria: "); display.print(percBateria); display.println("%");
-      display.println("---------------------");
-      display.println("Pacote Recebido!");
-      display.print("RSSI: "); display.println(rssi);
-      display.display();
-
-   float vBatPin = analogReadMilliVolts(PINO_BAT) / 1000.0;
-   float vBateria = vBatPin * 2.0; 
-   int percBateria = 0;
-   if (vBateria >= 4.2) percBateria = 100;
-   else if (vBateria <= 3.3) percBateria = 0;
-   else percBateria = (vBateria - 3.3) / (4.2 - 3.3) * 100;
 
       Serial.println("\n--- Nova Mensagem LoRa Protegida ---");
       Serial.print("Sinal (RSSI): "); Serial.print(rssi); Serial.println(" dBm");
@@ -150,7 +172,7 @@ void loop() {
         doc["gateway"] = WiFi.macAddress();
         doc["rssi"] = rssi;            
         doc["bateria_pct"] = bateria.toInt();
-        doc["bateria_gateway"] = percBateria;
+        doc["bateria_gateway"] = percBateria; 
 
         JsonArray leituras = doc.createNestedArray("leituras");
 
@@ -160,13 +182,12 @@ void loop() {
           obj["valor"] = val.toFloat();
         };
 
-        // Adiciona os 6 sensores com os mapeamentos de IDs corretos
-        addReading(1, oxigenio); // Oxigénio Dissolvido -> ID 1 conforme solicitado!
-        addReading(2, temp);     // Temperatura -> ID 2
-        addReading(3, turb);     // Turbidez -> ID 3
-        addReading(4, tds);      // TDS -> ID 4
-        addReading(5, ph);       // pH -> ID 5
-        addReading(6, ec);       // Condutividade (EC) -> ID 6
+        addReading(1, oxigenio); 
+        addReading(2, temp);     
+        addReading(3, turb);     
+        addReading(4, tds);      
+        addReading(5, ph);       
+        addReading(6, ec);       
 
         String jsonPayload;
         serializeJson(doc, jsonPayload);
@@ -182,8 +203,7 @@ void loop() {
 
           if (httpResponseCode == 201 || httpResponseCode == 200) {
             Serial.println("[API] SUCESSO! Telemetria completa enviada ao Laravel.");
-            display.println("API OK!");
-            display.display();
+            atualizarEcra("PACOTE RECEBIDO!", "API Laravel: OK", "Sinal: " + String(rssi) + " dBm");
 
             // Processamento do Downlink (Tempo de sono enviado pelo Laravel)
             String respostaApi = http.getString();
@@ -192,30 +212,31 @@ void loop() {
             if (deserializeJson(docRes, respostaApi) == DeserializationError::Ok) {
                if (docRes.containsKey("configuracao")) {
                   int novoIntervalo = docRes["configuracao"]["intervalo_segundos"];
-
                   LoRa.beginPacket();
                   LoRa.print(novoIntervalo); 
                   LoRa.endPacket();
-
-                  LoRa.receive(); // Coloca o rádio de volta em modo escuta
-
+                  LoRa.receive(); 
                   Serial.printf(">> Downlink enviado para a boia: Dormir por %d segundos.\n", novoIntervalo);
                }
             }
           } else {
             Serial.print("[API] ERRO ");
-            display.println("API ERRO!");
-            display.display();
             Serial.print(httpResponseCode);
             Serial.println(": " + http.getString());
+            atualizarEcra("PACOTE RECEBIDO!", "API Laravel: ERRO", "Codigo HTTP: " + String(httpResponseCode));
           }
           http.end();
         } else {
           Serial.println("ERRO: WiFi desconectado!");
-          WiFi.reconnect();
+          atualizarEcra("ERRO: WiFi OFF", "Pacote ignorado.");
         }
+        
+        // Mantém o resultado da API visível por 4 segundos antes de libertar o ecrã
+        delay(4000); 
+        tempoUltimoEcra = 0; 
       } else {
         Serial.println("ERRO: Falha ao segmentar os 8 campos do pacote.");
       }
     }
 }
+

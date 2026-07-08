@@ -103,7 +103,11 @@ export default function PainelSuperAdmin({ onAbaChange, isHelpMode }) {
     const handleUpdateUser = async (e) => {
         e.preventDefault();
         try {
-            await api.put(`/users/${editandoUser.id}`, editandoUser);
+            const payload = { ...editandoUser };
+            if (payload.empresa_id === "") payload.empresa_id = null;
+            if (!payload.password) delete payload.password;
+            
+            await api.put(`/users/${editandoUser.id}`, payload);
             setEditandoUser(null);
             setMensagem('Utilizador atualizado!');
             carregarDados();
@@ -461,7 +465,7 @@ export default function PainelSuperAdmin({ onAbaChange, isHelpMode }) {
                                 </table>
                             </div>
                         </section>
-                    ) : abaAtiva === 'utilizadores' && !editandoUser ? (
+                    ) : abaAtiva === 'utilizadores' ? (
                         <section className="space-y-6 relative">
                             {isHelpMode && <HelpPin text="👥 Utilizadores: Gere quem tem acesso ao sistema. Podes criar novos acessos ou alterar as permissões e empresas de cada um." className="absolute -top-4 right-4" position="left" />}
                             <div className="flex items-center justify-between px-2">
@@ -634,6 +638,15 @@ export default function PainelSuperAdmin({ onAbaChange, isHelpMode }) {
                                     />
                                 </div>
                                 <div>
+                                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Nova Palavra-passe</label>
+                                    <input 
+                                        type="password" placeholder="Deixar em branco para não alterar" 
+                                        value={editandoUser.password || ''}
+                                        onChange={e => setEditandoUser({...editandoUser, password: e.target.value})}
+                                        className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-4 focus:ring-indigo-500/5 focus:border-indigo-500 font-bold text-sm transition-all placeholder:text-slate-300"
+                                    />
+                                </div>
+                                <div>
                                     <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Nível de Acesso</label>
                                     <select 
                                         value={editandoUser.role}
@@ -644,6 +657,19 @@ export default function PainelSuperAdmin({ onAbaChange, isHelpMode }) {
                                         <option value="admin_empresa">ADMIN EMPRESA</option>
                                         <option value="tecnico_empresa">TÉCNICO</option>
                                         <option value="leitor_empresa">LEITOR</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Empresa Vinculada</label>
+                                    <select 
+                                        value={editandoUser.empresa_id || ''}
+                                        onChange={e => setEditandoUser({...editandoUser, empresa_id: e.target.value})}
+                                        className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-4 focus:ring-indigo-500/5 focus:border-indigo-500 font-black text-sm uppercase transition-all cursor-pointer"
+                                    >
+                                        <option value="">Sem Empresa Vinculada</option>
+                                        {empresas.map(emp => (
+                                            <option key={emp.id} value={emp.id}>{emp.nome}</option>
+                                        ))}
                                     </select>
                                 </div>
                                 <button type="submit" className="w-full bg-indigo-600 text-white py-5 rounded-2xl font-black uppercase tracking-widest text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all">

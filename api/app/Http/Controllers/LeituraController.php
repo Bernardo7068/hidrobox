@@ -216,8 +216,8 @@ class LeituraController extends Controller
                     continue; 
                 }
 
-                // 4. Verificação de Alertas
-                if ($limite->is_configurado) {
+                // 4. Verificação de Alertas (Só gera alertas de limites se a boia estiver 'ativa')
+                if ($limite->is_configurado && $boia->estado === 'ativa') {
                     if ($item['valor'] < $limite->valor_minimo || $item['valor'] > $limite->valor_maximo) {
                         
                         $alertaPendente = Alerta::where('boia_id', $boia_id)

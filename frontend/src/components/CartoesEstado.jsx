@@ -8,10 +8,14 @@ export default function CartoesEstado({ boias = [], alertas = [] }) {
     const boiasAtivas = boias.filter(b => b.estado === 'ativa').length;
     const alertasPendentes = alertas.filter(a => !a.resolvido).length;
     
-    // Cálculo de Saúde: % de boias sem alertas críticos
-    const boiasComAlerta = new Set(alertas.filter(a => !a.resolvido).map(a => a.boia_id));
+    // Cálculo de Saúde: % de boias sem alertas críticos e que NÃO estejam marcadas com erro
+    const boiasComProblemas = new Set([
+      ...alertas.filter(a => !a.resolvido).map(a => a.boia_id),
+      ...boias.filter(b => b.estado === 'erro').map(b => b.id)
+    ]);
+    
     const saudeRede = totalBoias > 0 
-      ? Math.round(((totalBoias - boiasComAlerta.size) / totalBoias) * 100) 
+      ? Math.round(((totalBoias - boiasComProblemas.size) / totalBoias) * 100) 
       : 100;
 
     setStats({

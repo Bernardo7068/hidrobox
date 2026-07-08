@@ -5,7 +5,7 @@ import Tooltip from './Tooltip';
 import HelpPin from './HelpPin';
 import api from '../api';
 
-export default function VisaoGeral({ boias = [], alertas = [], setAbaAtiva, isHelpMode }) {
+export default function VisaoGeral({ boias = [], alertas = [], setAbaAtiva, isHelpMode, onAtualizar }) {
   const [zonas, setZonas] = useState([]);
   const boiasPendentes = boias.filter(b => b.estado === 'pendente');
   
@@ -31,7 +31,7 @@ export default function VisaoGeral({ boias = [], alertas = [], setAbaAtiva, isHe
       
       {/* Alerta de Descoberta de Hardware (Boias Pendentes) */}
       {boiasPendentes.length > 0 && (
-        <section className="mx-4 bg-amber-50 border-2 border-amber-200 p-6 rounded-[2rem] shadow-lg shadow-amber-200/20 flex flex-col md:flex-row items-center justify-between gap-6 animate-bounce-slow relative">
+        <section className="mx-4 bg-amber-50 border-2 border-amber-200 p-4 md:p-6 rounded-[2rem] shadow-lg shadow-amber-200/20 flex flex-col md:flex-row items-center justify-between gap-4 md:p-6 animate-bounce-slow relative">
           {isHelpMode && <HelpPin text="⚠️ Novo Aparelho: O sistema detetou uma nova boia a enviar dados, mas ainda não foi configurada. Clica no botão para a adicionares à tua lista." className="absolute -top-3 -left-3" position="right" />}
           <div className="flex items-center gap-5">
             <Tooltip text="Aparelho detetado pelo Ponto de Rede">
@@ -74,9 +74,9 @@ export default function VisaoGeral({ boias = [], alertas = [], setAbaAtiva, isHe
       )}
 
       {/* Resumo de Rede Direto e Prático */}
-      <section className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 px-4">
+      <section className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 md:p-6 px-4">
         <div>
-          <h2 className="text-4xl font-black text-slate-800 tracking-tight mb-2">Resumo do Dia</h2>
+          <h2 className="text-3xl md:text-4xl font-black text-slate-800 tracking-tight mb-2">Resumo do Dia</h2>
           <p className="text-slate-400 font-bold uppercase text-xs tracking-[0.3em] ml-1">Estado das Estações HidroBox</p>
         </div>
         <div className="flex gap-4 relative">
@@ -107,7 +107,7 @@ export default function VisaoGeral({ boias = [], alertas = [], setAbaAtiva, isHe
             </Tooltip>
             <h3 className="text-lg font-black text-slate-800 uppercase tracking-tighter">Eventos Críticos</h3>
           </div>
-          <TabelaAlertas alertas={alertas} />
+          <TabelaAlertas alertas={alertas} onAtualizar={onAtualizar} />
         </div>
 
         {/* Coluna de Contexto por Zona (Nova visão estratégica) */}
@@ -117,13 +117,13 @@ export default function VisaoGeral({ boias = [], alertas = [], setAbaAtiva, isHe
             <h3 className="text-lg font-black text-slate-800 uppercase tracking-tighter">Distribuição por Zonas Ativas</h3>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {zonas.map(zona => {
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:p-6">
+            {zonas.filter(z => boias.some(b => b.zona_id === z.id)).map(zona => {
               const boiasNaZona = boias.filter(b => b.zona_id === zona.id);
               const alertasNaZona = alertas.filter(a => boiasNaZona.some(b => b.id === a.boia_id) && !a.resolvido);
               
               return (
-                <div key={zona.id} className="bg-white p-8 rounded-[2.5rem] shadow-xl shadow-slate-200/40 border border-slate-100 group hover:border-blue-200 transition-all">
+                <div key={zona.id} className="bg-white p-5 md:p-8 rounded-3xl md:rounded-[2.5rem] shadow-xl shadow-slate-200/40 border border-slate-100 group hover:border-blue-200 transition-all">
                   <div className="flex justify-between items-start mb-6">
                     <Tooltip text={`Identificador da Zona: ${zona.nome}`} position="right">
                         <div className="w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center font-black shadow-lg group-hover:bg-blue-600 transition-colors cursor-help">

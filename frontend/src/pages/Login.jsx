@@ -36,8 +36,8 @@ export default function Login({ onLogin }) {
             <div className="bg-white rounded-[3rem] shadow-[0_50px_100px_-20px_rgba(0,0,0,0.1)] w-full max-w-lg overflow-hidden relative z-10 border border-slate-100">
                 <div className="bg-gradient-to-br from-blue-700 to-indigo-900 p-12 text-center text-white relative">
                     <div className="absolute top-4 right-6 opacity-20 text-4xl">🌊</div>
-                    <div className="bg-white w-20 h-20 rounded-3xl shadow-2xl flex items-center justify-center text-4xl mx-auto mb-6 transform rotate-3 hover:rotate-0 transition-transform duration-500">
-                        📦
+                    <div className="w-48 h-32 flex items-center justify-center mx-auto mb-6 transform hover:scale-105 transition-transform duration-500 overflow-visible">
+                        <img src="/logo_hidrobox1.png" alt="HidroBox Logo" className="w-full h-full object-contain drop-shadow-xl" />
                     </div>
                     <h1 className="text-4xl font-black tracking-tight mb-2">Hidro<span className="text-blue-300">Box</span></h1>
                     <p className="text-blue-100/70 text-sm font-bold uppercase tracking-[0.2em]">Painel de Gestão Operacional</p>

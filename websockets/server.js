@@ -53,6 +53,6 @@ app.post('/api/broadcast', (req, res) => {
   return res.json({ success: true });
 });
 
-httpServer.listen(PORT, () => {
-  console.log(`[WebSocket] Servidor ativo em http://localhost:${PORT}`);
+httpServer.listen(PORT, '0.0.0.0', () => {
+  console.log(`[WebSocket] Servidor ativo e aberto à rede na porta ${PORT}`);
 });

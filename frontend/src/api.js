@@ -1,7 +1,8 @@
 import axios from 'axios';
 
+const hostname = window.location.hostname;
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000/api',
+  baseURL: import.meta.env.VITE_API_URL || `http://${hostname}:8000/api`,
 });
 
 // Adiciona o token em todos os pedidos

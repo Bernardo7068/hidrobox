@@ -17,6 +17,7 @@ export default function Dashboard({ onLogout, user, setUser }) {
   // O utilizador agora é injetado diretamente pelo App.jsx (reativo)
   
   const [abaAtiva, setAbaAtiva] = useState(() => sessionStorage.getItem('abaAtiva') || 'guia');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
     sessionStorage.setItem('abaAtiva', abaAtiva);
@@ -55,7 +56,7 @@ export default function Dashboard({ onLogout, user, setUser }) {
     },
     {
       target: '#sidebar-equipamentos',
-      title: 'Gestão de Aparelhos',
+      title: 'Gestão de Dispositivos',
       content: 'Aqui podes adicionar novas boias e pontos de rede (gateways), além de configurar os limites de segurança de cada sensor.',
       onBefore: () => setAbaAtiva('equipamentos')
     },
@@ -146,7 +147,8 @@ export default function Dashboard({ onLogout, user, setUser }) {
     carregarDadosGlobais();
     
     // 1. Inicializar a ligação ao servidor WebSocket
-    const wsUrl = import.meta.env.VITE_WS_URL || 'http://localhost:3001';
+    const hostname = window.location.hostname;
+    const wsUrl = import.meta.env.VITE_WS_URL || `http://${hostname}:3001`;
     const socket = io(wsUrl);
 
     socket.on('connect', () => {
@@ -205,7 +207,7 @@ export default function Dashboard({ onLogout, user, setUser }) {
 
   return (
     <div className="flex h-screen bg-slate-50 font-sans overflow-hidden text-slate-900">
-      <Sidebar setAbaAtiva={setAbaAtiva} abaAtiva={abaAtiva} role={user.role} onLogout={onLogout} />
+      <Sidebar setAbaAtiva={setAbaAtiva} abaAtiva={abaAtiva} role={user.role} onLogout={onLogout} isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} />
 
       {mostrarTour && (
         <GuiaInterativo 
@@ -215,17 +217,17 @@ export default function Dashboard({ onLogout, user, setUser }) {
       )}
 
       <div className="flex-1 flex flex-col h-screen min-w-0 relative">
-        <Header titulo={abaAtiva} userName={user.name} />
+        <Header titulo={abaAtiva} userName={user.name} setIsSidebarOpen={setIsSidebarOpen} />
 
-        <main className="flex-1 overflow-y-auto p-6 md:p-12">
+        <main className="flex-1 overflow-y-auto p-4 md:p-12">
           {abaAtiva === 'guia' && <GuiaUtilizador setAbaAtiva={setAbaAtiva} onStartTour={() => setMostrarTour(true)} />}
-          {abaAtiva === 'visao-geral' && <VisaoGeral boias={boias} alertas={alertas} setAbaAtiva={setAbaAtiva} isHelpMode={isHelpMode} />}
+          {abaAtiva === 'visao-geral' && <VisaoGeral boias={boias} alertas={alertas} setAbaAtiva={setAbaAtiva} isHelpMode={isHelpMode} onAtualizar={carregarDadosGlobais} />}
           
           {abaAtiva === 'mapa' && (
             <MapaEstacoes boias={boias} gateways={gateways} isHelpMode={isHelpMode} />
           )}
 
-          {abaAtiva === 'equipamentos' && <GestaoEquipamentos isHelpMode={isHelpMode} />}
+          {abaAtiva === 'equipamentos' && <GestaoEquipamentos isHelpMode={isHelpMode} onAtualizar={carregarDadosGlobais} />}
           {abaAtiva === 'estatisticas' && <Estatisticas isHelpMode={isHelpMode} />}
           {abaAtiva === 'super-admin' && user.role === 'super_admin' && (
             <PainelSuperAdmin onAbaChange={setAbaAtiva} isHelpMode={isHelpMode} />

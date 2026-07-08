@@ -1,7 +1,7 @@
 import Tooltip from './Tooltip';
 
-export default function Sidebar({ setAbaAtiva, abaAtiva, role, onLogout }) {
-  const baseClass = "group relative block p-4 rounded-2xl transition-all duration-300 font-bold cursor-pointer flex items-center justify-center gap-4 border-2 border-transparent";
+export default function Sidebar({ setAbaAtiva, abaAtiva, role, onLogout, isSidebarOpen, setIsSidebarOpen }) {
+  const baseClass = "group relative block p-4 rounded-2xl transition-all duration-300 font-bold cursor-pointer flex items-center justify-center md:justify-start md:px-6 gap-4 border-2 border-transparent";
   const activeClass = "bg-white text-blue-900 shadow-xl shadow-blue-900/20 border-blue-200 scale-[1.02]";
   const inactiveClass = "text-blue-100 hover:bg-blue-800/50 hover:border-blue-700/50";
 
@@ -20,14 +20,31 @@ export default function Sidebar({ setAbaAtiva, abaAtiva, role, onLogout }) {
   }
 
   return (
-    <aside className="w-72 bg-blue-900 text-white flex flex-col h-screen shadow-2xl z-30 relative overflow-hidden">
-      {/* Efeito de Gradiente no fundo da Sidebar */}
-      <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-blue-800/50 to-transparent pointer-events-none"></div>
+    <>
+      {/* Overlay escuro no mobile */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-30 md:hidden transition-opacity" 
+          onClick={() => setIsSidebarOpen(false)}
+        ></div>
+      )}
 
-      {/* Logotipo */}
+      <aside className={`fixed md:relative top-0 left-0 w-72 bg-blue-900 text-white flex flex-col h-screen shadow-2xl z-40 overflow-hidden transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
+        {/* Efeito de Gradiente no fundo da Sidebar */}
+        <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-blue-800/50 to-transparent pointer-events-none"></div>
+
+        {/* Botão de fechar mobile */}
+        <button 
+          onClick={() => setIsSidebarOpen(false)}
+          className="md:hidden absolute top-6 right-6 text-white/50 hover:text-white z-50 text-2xl"
+        >
+          ✕
+        </button>
+
+        {/* Logotipo */}
       <div className="p-10 border-b border-blue-800 relative z-10 flex flex-col items-center">
-        <div className="bg-white p-3 rounded-2xl shadow-lg mb-4">
-            <span className="text-3xl">🌊</span>
+        <div className="mb-4 flex items-center justify-center overflow-visible">
+            <img src="/logo_hidrobox1.png" alt="HidroBox Logo" className="h-16 w-auto object-contain drop-shadow-lg" />
         </div>
         <h1 className="text-2xl font-black tracking-tighter">
           Hidro<span className="text-blue-400">Box</span>
@@ -45,7 +62,10 @@ export default function Sidebar({ setAbaAtiva, abaAtiva, role, onLogout }) {
           <Tooltip key={item.id} text={item.desc} position="right" className="block w-full">
             <div 
               id={`sidebar-${item.id}`}
-              onClick={() => setAbaAtiva(item.id)}
+              onClick={() => {
+                setAbaAtiva(item.id);
+                setIsSidebarOpen(false); // Fecha no mobile ao clicar
+              }}
               className={`${baseClass} ${abaAtiva === item.id ? activeClass : inactiveClass} w-full`}
             >
               <div className="flex items-center justify-center w-8">
@@ -81,5 +101,6 @@ export default function Sidebar({ setAbaAtiva, abaAtiva, role, onLogout }) {
         </div>
       </div>
     </aside>
+    </>
   );
 }

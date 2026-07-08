@@ -7,7 +7,6 @@ use Illuminate\Database\Eloquent\Model;
 class Boia extends Model
 {
     protected $table = 'boias';
-    public $timestamps = false;
 
     protected $fillable = [
         'mac_boia',
