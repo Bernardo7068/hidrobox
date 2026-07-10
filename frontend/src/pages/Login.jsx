@@ -39,7 +39,7 @@ export default function Login({ onLogin }) {
                     <div className="w-48 h-32 flex items-center justify-center mx-auto mb-6 transform hover:scale-105 transition-transform duration-500 overflow-visible">
                         <img src="/logo_hidrobox1.png" alt="HidroBox Logo" className="w-full h-full object-contain drop-shadow-xl" />
                     </div>
-                    <h1 className="text-4xl font-black tracking-tight mb-2">Hidro<span className="text-blue-300">Box</span></h1>
+                    <h1 className="text-4xl font-black tracking-tight mb-2">Hydro<span className="text-blue-300">Box</span></h1>
                     <p className="text-blue-100/70 text-sm font-bold uppercase tracking-[0.2em]">Painel de Gestão Operacional</p>
                 </div>
 
@@ -82,7 +82,7 @@ export default function Login({ onLogin }) {
                         disabled={carregando}
                         className="w-full bg-blue-600 text-white py-6 rounded-2xl font-black uppercase tracking-[0.2em] hover:bg-slate-900 transition-all shadow-2xl shadow-blue-200 active:scale-95 disabled:opacity-50 text-xs"
                     >
-                        {carregando ? 'A Sincronizar...' : 'Iniciar Sessão HidroBox 🚀'}
+                        {carregando ? 'A Sincronizar...' : 'Iniciar Sessão HydroBox 🚀'}
                     </button>
 
                     <div className="pt-8 border-t border-slate-100 mt-8">

@@ -249,7 +249,7 @@ export default function PainelSuperAdmin({ onAbaChange, isHelpMode }) {
                         </div>
                     </div>
                     <div className="text-xs font-mono text-slate-700 uppercase tracking-[0.3em]">
-                        Terminal_HidroBox_Explorer // System_Ready
+                        Terminal_HydroBox_Explorer // System_Ready
                     </div>
                 </div>
             </div>

@@ -8,7 +8,7 @@ const GuiaUtilizador = ({ onStartTour }) => {
       {/* 1. O QUE É O HIDROBOX? - Cabeçalho Impactante */}
       <section className="text-center space-y-10 pt-12">
         <div className="inline-block bg-blue-600 text-white px-12 py-4 rounded-full text-base font-black uppercase tracking-[0.4em] shadow-2xl shadow-blue-200">
-          O Projeto HidroBox
+          O Projeto HydroBox
         </div>
 
         <div className="space-y-6">
@@ -17,7 +17,7 @@ const GuiaUtilizador = ({ onStartTour }) => {
             <span className="text-blue-600">Água em Tempo Real.</span>
           </h1>
           <p className="text-2xl text-slate-500 max-w-4xl mx-auto leading-relaxed font-medium">
-            O <strong>HidroBox</strong> é um ecossistema inteligente de deteção, análise e auxílio ao tratamento de água, 
+            O <strong>HydroBox</strong> é um ecossistema inteligente de deteção, análise e auxílio ao tratamento de água, 
             desenhado para garantir a saúde dos nossos rios e ecossistemas.
           </p>
           <div className="pt-6">
@@ -158,7 +158,7 @@ const GuiaUtilizador = ({ onStartTour }) => {
                   <span>🛠️</span> Agenda Técnica
                 </h4>
                 <p className="text-lg text-slate-400 leading-relaxed">
-                  Gere as <strong>Revisões</strong>. O HidroBox avisa quando está na hora de ir ao rio fazer a manutenção de rotina ou limpar os sensores para garantir que os dados são corretos.
+                  Gere as <strong>Revisões</strong>. O HydroBox avisa quando está na hora de ir ao rio fazer a manutenção de rotina ou limpar os sensores para garantir que os dados são corretos.
                 </p>
               </div>
             </div>
@@ -195,7 +195,7 @@ const GuiaUtilizador = ({ onStartTour }) => {
            <div className="w-px h-12 bg-slate-200"></div>
            <div className="flex flex-col items-center">
              <span className="text-sm font-black text-slate-400 uppercase tracking-widest mb-1">Processamento</span>
-             <span className="font-bold text-slate-800">HidroBox API</span>
+             <span className="font-bold text-slate-800">HydroBox API</span>
            </div>
         </div>
         <p className="text-slate-400 font-bold text-xs uppercase tracking-[0.5em]">

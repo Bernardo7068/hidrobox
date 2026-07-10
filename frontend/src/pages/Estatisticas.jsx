@@ -77,7 +77,7 @@ export default function Estatisticas({ isHelpMode }) {
             <span className="p-3 bg-blue-500/20 text-blue-400 rounded-2xl text-2xl backdrop-blur-sm border border-blue-500/20">📊</span>
             <h2 className="text-4xl md:text-5xl font-black tracking-tight uppercase">Dados & Estatísticas</h2>
           </div>
-          <p className="text-slate-400 font-bold uppercase text-xs tracking-[0.3em] ml-16">Monitorização de Inteligência HidroBox</p>
+          <p className="text-slate-400 font-bold uppercase text-xs tracking-[0.3em] ml-16">Monitorização de Inteligência HydroBox</p>
         </div>
         <div className="flex gap-4 relative z-10">
           <button 

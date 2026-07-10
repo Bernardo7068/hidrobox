@@ -1777,7 +1777,7 @@ export default function GestaoEquipamentos({ isHelpMode, onAtualizar }) {
                                             <div className="p-20 text-center bg-slate-900 rounded-[3rem] border-4 border-dashed border-slate-800">
                                                 <div className="text-6xl mb-6">🛰️</div>
                                                 <h3 className="text-2xl font-black text-white uppercase tracking-widest">Sistemas Nominais</h3>
-                                                <p className="text-slate-500 font-bold mt-2 uppercase text-sm tracking-[0.3em]">Sem tarefas pendentes na rede HidroBox</p>
+                                                <p className="text-slate-500 font-bold mt-2 uppercase text-sm tracking-[0.3em]">Sem tarefas pendentes na rede HydroBox</p>
                                             </div>
                                         ) : (
                                             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
@@ -2257,7 +2257,7 @@ export default function GestaoEquipamentos({ isHelpMode, onAtualizar }) {
                                 <h3 className="font-black text-3xl uppercase tracking-tighter text-blue-400">
                                     {editandoBoia ? 'Configuração' : 'Ficha Técnica'}
                                 </h3>
-                                <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.4em]">Protocolo HidroBox v2.0</p>
+                                <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.4em]">Protocolo HydroBox v2.0</p>
                             </div>
                                 <div className="flex gap-4">
                                 {!isLeitor && (

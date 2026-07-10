@@ -6,7 +6,7 @@ export default function Sidebar({ setAbaAtiva, abaAtiva, role, onLogout, isSideb
   const inactiveClass = "text-blue-100 hover:bg-blue-800/50 hover:border-blue-700/50";
 
   const menuItems = [
-    { id: 'guia', label: 'Guia do Sistema', icon: '📖', desc: 'Aprender a usar o HidroBox' },
+    { id: 'guia', label: 'Guia do Sistema', icon: '📖', desc: 'Aprender a usar o HydroBox' },
     { id: 'visao-geral', label: 'Estado da Rede', icon: '📊', desc: 'Resumo e Alertas Atuais' },
     { id: 'mapa', label: 'Mapa das Estações', icon: '🌍', desc: 'Localização no Rio' },
     { id: 'estatisticas', label: 'Histórico e Dados', icon: '📈', desc: 'Análise da Qualidade' },
@@ -47,7 +47,7 @@ export default function Sidebar({ setAbaAtiva, abaAtiva, role, onLogout, isSideb
             <img src="/logo_hidrobox1.png" alt="HidroBox Logo" className="h-16 w-auto object-contain drop-shadow-lg" />
         </div>
         <h1 className="text-2xl font-black tracking-tighter">
-          Hidro<span className="text-blue-400">Box</span>
+          Hydro<span className="text-blue-400">Box</span>
         </h1>
         <div className="mt-3 bg-blue-400/20 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-[0.2em] text-blue-300 border border-blue-400/30">
            {role === 'super_admin' ? 'Administrador Geral' : role === 'admin_empresa' ? 'Gestor de Equipa' : role === 'tecnico_empresa' ? 'Técnico de Campo' : 'Observador / Leitor'}

@@ -104,7 +104,7 @@ export default function VisaoGeral({ boias = [], alertas = [], gateways = [], se
       <section className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 md:p-6 px-4">
         <div>
           <h2 className="text-3xl md:text-4xl font-black text-slate-800 tracking-tight mb-2">Resumo do Dia</h2>
-          <p className="text-slate-400 font-bold uppercase text-xs tracking-[0.3em] ml-1">Estado das Estações HidroBox</p>
+          <p className="text-slate-400 font-bold uppercase text-xs tracking-[0.3em] ml-1">Estado das Estações HydroBox</p>
         </div>
         <div className="flex gap-4 relative">
             {isHelpMode && <HelpPin text="Indica que a aplicação está ligada à base de dados central." className="absolute -top-2 -right-2" position="left" />}

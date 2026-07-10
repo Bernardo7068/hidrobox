@@ -32,7 +32,7 @@ export default function Dashboard({ onLogout, user, setUser }) {
   const passosTutorial = [
     {
       target: '#sidebar-guia',
-      title: 'Bem-vindo à HidroBox!',
+      title: 'Bem-vindo à HydroBox!',
       content: 'Este é o teu ponto de partida. Aqui podes sempre rever como funciona todo o sistema.',
       onBefore: () => setAbaAtiva('guia')
     },
@@ -93,7 +93,7 @@ export default function Dashboard({ onLogout, user, setUser }) {
     user.role === 'super_admin' ? {
       target: '#btn-aba-entidades',
       title: 'Gestão de Entidades',
-      content: 'Aqui geres as organizações (clientes) que utilizam o HidroBox. Podes adicionar novos Hubs de negócio.',
+      content: 'Aqui geres as organizações (clientes) que utilizam o HydroBox. Podes adicionar novos Hubs de negócio.',
       onBefore: () => setAbaAtiva('super-admin')
     } : null,
     user.role === 'super_admin' ? {
@@ -105,7 +105,7 @@ export default function Dashboard({ onLogout, user, setUser }) {
     user.role === 'super_admin' ? {
       target: '#btn-aba-metricas',
       title: 'Configuração de Métricas',
-      content: 'Define que tipos de dados o HidroBox pode medir (ex: pH, Oxigénio). Estas métricas ficam disponíveis para todas as boias.',
+      content: 'Define que tipos de dados o HydroBox pode medir (ex: pH, Oxigénio). Estas métricas ficam disponíveis para todas as boias.',
       onBefore: () => setAbaAtiva('super-admin')
     } : null,
     {
