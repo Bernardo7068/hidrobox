@@ -17,6 +17,7 @@ class ZonaController extends Controller
         $id = DB::table('zonas')->insertGetId([
             'nome' => $request->nome,
             'concelho' => $request->concelho ?? 'Desconhecido',
+            'empresa_id' => $request->user()->empresa_id
         ]);
 
         return response()->json(['message' => 'Zona criada com sucesso', 'id' => $id], 201);

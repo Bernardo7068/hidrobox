@@ -46,9 +46,14 @@ app.post('/api/broadcast', (req, res) => {
     return res.status(400).json({ error: 'Faltam dados obrigatórios (empresa_id, event, data).' });
   }
 
-  // Transmite para todos os clientes daquela empresa específica
-  io.to(`empresa_${empresa_id}`).emit(event, data);
-  console.log(`[Broadcast] Evento "${event}" enviado para a empresa ${empresa_id}`);
+  // Transmite para todos os clientes daquela empresa específica ou para toda a rede (Gateways partilhados)
+  if (empresa_id === 'all') {
+    io.emit(event, data);
+    console.log(`[Broadcast] Evento "${event}" enviado para TODOS os clientes`);
+  } else {
+    io.to(`empresa_${empresa_id}`).emit(event, data);
+    console.log(`[Broadcast] Evento "${event}" enviado para a empresa ${empresa_id}`);
+  }
 
   return res.json({ success: true });
 });

@@ -9,11 +9,61 @@ use App\Models\TipoSensor;
 use App\Models\LimiteSensor;
 use App\Models\Gateway;
 use Illuminate\Support\Facades\DB;
+use App\Models\Alerta;
+use Carbon\Carbon;
+use Illuminate\Support\Facades\Http;
 
 class BoiaController extends Controller
 {
     public function getGateways()
     {
+        // 1. Verificação Pseudo-Cron de Estado (Heartbeat)
+        $gateways = Gateway::whereIn('estado', ['ativo', 'pendente'])->get();
+        $agora = Carbon::now();
+
+        foreach ($gateways as $gateway) {
+            $ultimaVez = $gateway->updated_at ? new Carbon($gateway->updated_at) : new Carbon($gateway->created_at);
+            
+            // O tempo base é o menor intervalo de deep sleep das boias deste gateway.
+            $minIntervalo = DB::table('boias')->where('mac_gateway', $gateway->mac_gateway)->min('intervalo_segundos');
+            $intervaloBase = $minIntervalo ? (int)$minIntervalo : 300;
+            
+            // Tolerância: 3 minutos a mais para compensar a rede
+            $limiteSegundos = $intervaloBase + 180;
+            $segundosDesdeUltimaVez = $agora->diffInSeconds($ultimaVez);
+
+            if ($segundosDesdeUltimaVez > $limiteSegundos) {
+                // Gateway OFFLINE!
+                $gateway->estado = 'offline';
+                $gateway->save();
+
+                // Evitar duplicação do alerta
+                $alertaExistente = Alerta::where('gateway_id', $gateway->id)->where('resolvido', false)->first();
+
+                if (!$alertaExistente) {
+                    $alerta = Alerta::create([
+                        'gateway_id' => $gateway->id,
+                        'gravidade' => 'perigo',
+                        'descricao' => 'Falha Crítica: Torre de comunicação offline (' . $gateway->nome . ').',
+                        'resolvido' => false,
+                    ]);
+
+                    try {
+                        Http::post('http://127.0.0.1:3001/emit', [
+                            'event' => 'novo-alerta',
+                            'payload' => [
+                                'tipo' => 'gateway_offline',
+                                'alerta_id' => $alerta->id,
+                                'gateway_id' => $gateway->id,
+                                'empresa_id' => 'all'
+                            ]
+                        ]);
+                    } catch (\Exception $e) {}
+                }
+            }
+        }
+
+        // 2. Retornar os gateways atualizados
         return response()->json(Gateway::with('boias')->get());
     }
 
@@ -70,6 +120,51 @@ class BoiaController extends Controller
 
     public function index(Request $request)
     {
+        // 1. Verificação Pseudo-Cron de Estado (Heartbeat das Boias)
+        $todasBoias = Boia::whereIn('estado', ['ativa', 'pendente'])->get();
+        $agora = Carbon::now();
+
+        foreach ($todasBoias as $b) {
+            $ultimaVez = $b->updated_at ? new Carbon($b->updated_at) : new Carbon($b->created_at);
+            $intervalo = $b->intervalo_segundos ? (int)$b->intervalo_segundos : 300;
+            
+            // Tolerância: 3 minutos a mais para compensar atrasos
+            $limiteSegundos = $intervalo + 180;
+
+            if ($agora->diffInSeconds($ultimaVez) > $limiteSegundos) {
+                // Boia OFFLINE!
+                $b->estado = 'offline';
+                $b->save();
+
+                // Evitar duplicação do alerta
+                $alertaExistente = Alerta::where('boia_id', $b->id)
+                    ->where('resolvido', false)
+                    ->where('descricao', 'like', '%offline%')
+                    ->first();
+
+                if (!$alertaExistente) {
+                    $alerta = Alerta::create([
+                        'boia_id' => $b->id,
+                        'gravidade' => 'perigo',
+                        'descricao' => 'Falha Crítica: Boia offline (' . $b->nome . '). Nenhum dado recebido recentemente.',
+                        'resolvido' => false,
+                    ]);
+
+                    try {
+                        Http::post('http://127.0.0.1:3001/emit', [
+                            'event' => 'novo-alerta',
+                            'payload' => [
+                                'tipo' => 'boia_offline',
+                                'alerta_id' => $alerta->id,
+                                'boia_id' => $b->id,
+                                'empresa_id' => 'all'
+                            ]
+                        ]);
+                    } catch (\Exception $e) {}
+                }
+            }
+        }
+
         $user = $request->user(); 
 
         // Se for Super Admin, mostra tudo

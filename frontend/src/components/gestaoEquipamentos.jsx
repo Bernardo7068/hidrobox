@@ -117,7 +117,28 @@ export default function GestaoEquipamentos({ isHelpMode, onAtualizar }) {
     const [tiposSensor, setTiposSensor] = useState([]);
 
     const boiasPendentes = boias.filter(b => b.estado === 'pendente');
+    const gatewaysPendentes = gateways.filter(gw => gw.estado === 'pendente');
     const todasBoiasDisponiveis = boias.filter(b => b.estado === 'pendente' || b.estado === 'ativa');
+
+    // Função para verificar se o gateway perdeu comunicação
+    const isGatewayOffline = (gw) => {
+        if (gw.estado === 'pendente' || !gw.updated_at) return false;
+        
+        const minhasBoias = boias.filter(b => b.mac_gateway === gw.mac_gateway);
+        // Vai buscar os intervalos de deepsleep (em segundos) definidos nas boias
+        const intervalos = minhasBoias.map(b => b.intervalo_segundos).filter(val => val != null && val > 0);
+        // Usa o menor intervalo. Se não houver boias, assume fallback de 1 hora.
+        const menorIntervalo = intervalos.length > 0 ? Math.min(...intervalos) : 3600;
+        
+        // Adiciona uma margem de segurança para atrasos de rede ou tempo real de boot (mínimo 5 minutos)
+        const margemSeguranca = Math.max(300, menorIntervalo * 0.1); 
+        const timeoutSeconds = menorIntervalo + margemSeguranca;
+
+        const ultimaVez = new Date(gw.updated_at);
+        const diffSeconds = (new Date() - ultimaVez) / 1000;
+        
+        return diffSeconds > timeoutSeconds;
+    };
 
     // Novo estado para criação de gateway
     const [formGateway, setFormGateway] = useState({ mac_gateway: '', nome: '', latitude: '', longitude: '', raio_cobertura: 1000 });
@@ -272,11 +293,11 @@ export default function GestaoEquipamentos({ isHelpMode, onAtualizar }) {
         });
 
         socket.on('nova-leitura', () => {
-            if (subAba === 'inventario') carregarDadosIniciais();
+            carregarDadosIniciais();
         });
 
         socket.on('novo-alerta', () => {
-            if (subAba === 'inventario') carregarDadosIniciais();
+            carregarDadosIniciais();
         });
 
         return () => {
@@ -285,10 +306,11 @@ export default function GestaoEquipamentos({ isHelpMode, onAtualizar }) {
     }, [subAba]);
 
     useEffect(() => {
-        // Apenas um tick visual a cada 60s para manter os tempos e "Sinal Perdido" precisos sem consumir rede
+        // Tick visual a cada 60s + Refresh de dados de fundo (auto-discovery e heartbeats)
         const timer = setInterval(() => {
             setTick(t => t + 1);
-        }, 60000);
+            carregarDadosIniciais();
+        }, 30000); // 30 segundos
         return () => clearInterval(timer);
     }, []);
 
@@ -670,6 +692,7 @@ export default function GestaoEquipamentos({ isHelpMode, onAtualizar }) {
                                     bateria: boia.bateria ?? 100,
                                     estado: 'ativa'
                                 });
+                                setSubAba('inventario');
                             }}
                             className="bg-amber-950 text-white px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all shadow-xl active:scale-95"
                         >
@@ -679,9 +702,43 @@ export default function GestaoEquipamentos({ isHelpMode, onAtualizar }) {
                 </section>
             )}
 
+            {/* Alerta de Descoberta de Gateway */}
+            {(isAdmin || isTecnico) && gatewaysPendentes.length > 0 && (
+                <section className="mx-4 bg-emerald-50 border-2 border-emerald-200 p-6 rounded-[2rem] shadow-lg shadow-emerald-200/20 flex flex-col md:flex-row items-center justify-between gap-6">
+                    <div className="flex items-center gap-5">
+                        <div className="w-14 h-14 bg-emerald-500 rounded-2xl flex items-center justify-center text-2xl shadow-lg shadow-emerald-500/40 text-white">
+                            📡
+                        </div>
+                        <div>
+                            <h3 className="text-xl font-black text-emerald-900 uppercase tracking-tight">Novo Hub Detetado!</h3>
+                            <p className="text-emerald-700 font-bold text-sm uppercase tracking-widest mt-1">
+                                Gateway ativo a aguardar parametrização: <span className="font-black text-emerald-950 underline">{gatewaysPendentes[0].mac_gateway}</span>
+                            </p>
+                        </div>
+                    </div>
+                    <button 
+                        onClick={() => {
+                            const gw = gatewaysPendentes[0];
+                            setFormGateway({
+                                ...formGateway,
+                                mac_gateway: gw.mac_gateway,
+                                nome: gw.nome
+                            });
+                            setSubAba('rede');
+                            setTimeout(() => {
+                                document.getElementById('form-gateway')?.scrollIntoView({ behavior: 'smooth' });
+                            }, 100);
+                        }}
+                        className="bg-emerald-950 text-white px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all shadow-xl"
+                    >
+                        Configurar Hub
+                    </button>
+                </section>
+            )}
+
             {/* Alerta Discreto de Configurações Pendentes (VLE / Sensores) */}
             {boiasIncompletas.length > 0 && (
-                <section className="mb-8 bg-white border border-slate-200 px-6 py-3 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
+                <section className="mx-4 bg-white border border-slate-200 px-6 py-3 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
                     <div className="flex items-center gap-3 text-slate-500">
                         <span className="text-lg">⚙️</span>
                         <p className="text-xs font-bold uppercase tracking-widest">
@@ -718,9 +775,14 @@ export default function GestaoEquipamentos({ isHelpMode, onAtualizar }) {
                 <button
                     id="aba-hub-rede"
                     onClick={() => setSubAba('rede')}
-                    className={`${tabBase} ${subAba === 'rede' ? tabActive : tabInactive}`}
+                    className={`${tabBase} ${subAba === 'rede' ? tabActive : tabInactive} relative`}
                 >
                     <span className="text-xl">🗼</span> Torres de Comunicação
+                    {gatewaysPendentes.length > 0 && (
+                        <span className="absolute -top-1 -right-1 w-5 h-5 bg-emerald-500 text-white text-[10px] flex items-center justify-center rounded-full border-2 border-white animate-pulse shadow-lg">
+                            {gatewaysPendentes.length}
+                        </span>
+                    )}
                 </button>
                 {(isAdmin || isTecnico || isLeitor) && (
                     <button
@@ -738,19 +800,14 @@ export default function GestaoEquipamentos({ isHelpMode, onAtualizar }) {
                 )}
             </div>
 
-            {mensagem.texto && (
-                <div className={`p-4 rounded-2xl text-center text-sm font-black uppercase tracking-[0.2em] animate-bounce shadow-lg ${mensagem.tipo === 'sucesso' ? 'bg-emerald-500 text-white shadow-emerald-200' : 'bg-rose-500 text-white shadow-rose-200'}`}>
-                    {mensagem.texto}
-                </div>
-            )}
-
             {/* Área de Conteúdo */}
             <div className="space-y-12">
 
                 {/* ABA 1: MONITORIZAÇÃO */}
                 {subAba === 'inventario' && (
-                    <div className="space-y-16 relative">
-                        {isHelpMode && <HelpPin text="🖥️ Monitorização: Aqui podes ver os dados em tempo real de todas as tuas estações. Clica num cartão para abrir a Ficha Técnica da boia." className="absolute top-4 left-4" position="right" />}
+                    <div className="space-y-8 animate-fade-in relative">
+                        {isHelpMode && <HelpPin text="🖥️ Monitorização: Aqui vês o estado em tempo real de todas as estações de qualidade da água. As cores indicam a gravidade dos VLEs (Valores Limite de Emissão)." className="absolute top-4 right-4" position="left" />}
+
                         <header className="flex flex-col md:flex-row md:items-end justify-between gap-4 md:gap-6 px-4">
                             <div>
                                 <h2 className="text-3xl md:text-5xl font-black text-slate-800 tracking-tight leading-none">Lista de Dispositivos</h2>
@@ -1787,37 +1844,6 @@ export default function GestaoEquipamentos({ isHelpMode, onAtualizar }) {
                 {subAba === 'rede' && (
                     <div className="space-y-12 animate-fade-in relative">
                         {isHelpMode && <HelpPin text="📡 Torres de Comunicação: Aqui geres as antenas que recebem os dados das boias. Se uma boia estiver fora do círculo verde, pode perder o sinal!" className="absolute top-4 right-4" position="left" />}
-                        {/* Alerta de Descoberta de Gateway */}
-                        {(isAdmin || isTecnico) && gateways.some(gw => gw.estado === 'pendente') && (
-                            <section className="mx-4 bg-emerald-50 border-2 border-emerald-200 p-6 rounded-[2rem] shadow-lg shadow-emerald-200/20 flex flex-col md:flex-row items-center justify-between gap-6">
-                                <div className="flex items-center gap-5">
-                                    <div className="w-14 h-14 bg-emerald-500 rounded-2xl flex items-center justify-center text-2xl shadow-lg shadow-emerald-500/40 text-white">
-                                        📡
-                                    </div>
-                                    <div>
-                                        <h3 className="text-xl font-black text-emerald-900 uppercase tracking-tight">Novo Hub Detetado!</h3>
-                                        <p className="text-emerald-700 font-bold text-sm uppercase tracking-widest mt-1">
-                                            Gateway ativo a aguardar parametrização: <span className="font-black text-emerald-950 underline">{gateways.find(gw => gw.estado === 'pendente').mac_gateway}</span>
-                                        </p>
-                                    </div>
-                                </div>
-                                <button 
-                                    onClick={() => {
-                                        const gw = gateways.find(gw => gw.estado === 'pendente');
-                                        setFormGateway({
-                                            ...formGateway,
-                                            mac_gateway: gw.mac_gateway,
-                                            nome: gw.nome
-                                        });
-                                        // Scroll para o formulário
-                                        document.getElementById('form-gateway')?.scrollIntoView({ behavior: 'smooth' });
-                                    }}
-                                    className="bg-emerald-950 text-white px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all shadow-xl"
-                                >
-                                    Configurar Hub
-                                </button>
-                            </section>
-                        )}
 
                         <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-4">
                             <div>
@@ -2100,15 +2126,15 @@ export default function GestaoEquipamentos({ isHelpMode, onAtualizar }) {
                                                 </div>
                                             </div>
                                         ) : (
-                                        <div key={gw.id} className={`${cardClass} p-8 flex flex-col justify-between border-l-8 border-emerald-500`}>
+                                        <div key={gw.id} className={`${cardClass} p-8 flex flex-col justify-between border-l-8 ${gw.estado === 'pendente' ? 'border-amber-500' : (isGatewayOffline(gw) ? 'border-rose-500 bg-rose-50/50' : 'border-emerald-500')}`}>
                                             <div className="flex justify-between items-start">
                                                 <div>
                                                     <h4 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">{gw.nome}</h4>
                                                     <code className="text-sm font-black text-slate-400 tracking-widest block mt-1">{gw.mac_gateway}</code>
                                                 </div>
                                                 <div className="flex flex-col items-end gap-2">
-                                                    <span className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${gw.estado === 'ativo' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
-                                                        {gw.estado}
+                                                    <span className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${gw.estado === 'pendente' ? 'bg-amber-100 text-amber-600' : (isGatewayOffline(gw) ? 'bg-rose-100 text-rose-600 animate-pulse shadow-sm shadow-rose-200' : 'bg-emerald-100 text-emerald-600')}`}>
+                                                        {gw.estado === 'pendente' ? 'Pendente' : (isGatewayOffline(gw) ? 'Offline ⚠️' : 'Ativo')}
                                                     </span>
                                                     <Tooltip text="Nível de Bateria do Gateway" position="left">
                                                         <span className="px-3 py-1 bg-slate-50 border border-slate-100 rounded-lg text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1">
@@ -2289,13 +2315,39 @@ export default function GestaoEquipamentos({ isHelpMode, onAtualizar }) {
                             {editandoBoia ? (
                                 <form onSubmit={handleAtualizarBoia} className="space-y-8">
                                     <div className="space-y-6">
-                                        <div>
-                                            <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest block mb-3">Nome da Estação</label>
-                                            <input 
-                                                type="text" required value={formEditBoia.nome}
-                                                onChange={e => setFormEditBoia({...formEditBoia, nome: e.target.value})}
-                                                className="w-full p-4 bg-white/5 border-2 border-white/10 rounded-2xl font-black text-white focus:border-blue-500 outline-none"
-                                            />
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                            <div>
+                                                <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest block mb-3">Nome da Estação</label>
+                                                <input 
+                                                    type="text" required value={formEditBoia.nome}
+                                                    onChange={e => setFormEditBoia({...formEditBoia, nome: e.target.value})}
+                                                    className="w-full p-4 bg-white/5 border-2 border-white/10 rounded-2xl font-black text-white focus:border-blue-500 outline-none"
+                                                />
+                                            </div>
+                                            <div>
+                                                <div className="flex justify-between items-center mb-3">
+                                                    <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest block">Zona de Operação</label>
+                                                    <button 
+                                                        type="button"
+                                                        onClick={() => setIsModalZonasOpen(true)}
+                                                        className="text-[10px] bg-blue-500/20 text-blue-300 hover:text-white hover:bg-blue-500 px-2 py-1 rounded transition-colors uppercase font-black"
+                                                        title="Gerir Zonas"
+                                                    >
+                                                        ✏️ Gerir
+                                                    </button>
+                                                </div>
+                                                <select 
+                                                    required
+                                                    value={formEditBoia.zona_id || ''}
+                                                    onChange={e => setFormEditBoia({...formEditBoia, zona_id: e.target.value})}
+                                                    className="w-full p-4 bg-white/5 border-2 border-white/10 rounded-2xl font-black text-white focus:border-blue-500 outline-none appearance-none"
+                                                >
+                                                    <option value="" disabled className="bg-slate-900">Selecione uma Zona</option>
+                                                    {zonas.map(z => (
+                                                        <option key={z.id} value={z.id} className="bg-slate-900">{z.nome}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
                                         </div>
                                         <div className="grid grid-cols-2 gap-6">
                                             <div>

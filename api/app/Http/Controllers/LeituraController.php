@@ -20,8 +20,11 @@ class LeituraController extends Controller
         // Como usamos o LeituraRequest, os dados chegam aqui 100% validados
         $validated = $request->validated();
         
-        // Resolve o ID interno da boia pelo MAC Address
-        $boia = Boia::where('mac_boia', $validated['mac'])->first();
+        // Resolve o ID interno da boia pelo MAC Address (se enviado)
+        $boia = null;
+        if (!empty($validated['mac'])) {
+            $boia = Boia::where('mac_boia', $validated['mac'])->first();
+        }
 
         // --- LÓGICA DE AUTO-DISCOVERY GATEWAY ---
         if ($request->has('gateway')) {
@@ -38,7 +41,40 @@ class LeituraController extends Controller
                     'updated_at' => now()
                 ]);
                 Log::info("Novo Gateway detetado via telemetria: {$request->gateway}");
+            } else {
+                // Heartbeat normal: atualiza a bateria se enviada
+                if ($request->has('bateria_gateway')) {
+                    DB::table('gateways')->where('mac_gateway', $request->gateway)->update([
+                        'bateria' => $request->bateria_gateway,
+                        'updated_at' => now()
+                    ]);
+                }
             }
+            
+            // --- NOTIFICAÇÃO WEBSOCKETS (GATEWAY) ---
+            try {
+                \Illuminate\Support\Facades\Http::withHeaders([
+                    'x-internal-token' => env('INTERNAL_API_SECRET', 'chave-secreta-interna-hidrobox')
+                ])->post('http://127.0.0.1:3000/internal/broadcast', [
+                    'empresa_id' => 'all', // Gateways enviam globalmente
+                    'event' => 'nova-leitura',
+                    'data' => [
+                        'tipo' => 'gateway_heartbeat',
+                        'mac' => $request->gateway
+                    ]
+                ]);
+            } catch (\Exception $e) {
+                Log::error("Erro WebSocket Gateway: " . $e->getMessage());
+            }
+        }
+
+        // Se não foi enviado MAC da boia, era apenas um heartbeat do gateway, podemos parar aqui.
+        if (empty($validated['mac'])) {
+            return response()->json([
+                'sucesso' => true,
+                'mensagem' => 'Gateway Heartbeat registado.',
+                'alertas_gerados' => 0
+            ], 201);
         }
 
         // --- LÓGICA DE AUTO-DISCOVERY BOIA ---

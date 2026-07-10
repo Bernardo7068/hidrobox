@@ -30,7 +30,7 @@ export default function CartoesEstado({ boias = [], alertas = [] }) {
       <StatCard 
         title="Disponibilidade" 
         value={`${stats.ativas} / ${boias.length}`} 
-        description="Estações em funcionamento nominal"
+        description="Estações em funcionamento normal"
         color="blue" 
         icon="📡" 
       />

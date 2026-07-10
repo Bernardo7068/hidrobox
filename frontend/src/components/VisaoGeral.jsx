@@ -5,7 +5,7 @@ import Tooltip from './Tooltip';
 import HelpPin from './HelpPin';
 import api from '../api';
 
-export default function VisaoGeral({ boias = [], alertas = [], setAbaAtiva, isHelpMode, onAtualizar }) {
+export default function VisaoGeral({ boias = [], alertas = [], gateways = [], setAbaAtiva, isHelpMode, onAtualizar }) {
   const [zonas, setZonas] = useState([]);
   const boiasPendentes = boias.filter(b => b.estado === 'pendente');
   
@@ -14,6 +14,8 @@ export default function VisaoGeral({ boias = [], alertas = [], setAbaAtiva, isHe
     if (b.estado === 'pendente') return false;
     return (b.limites || []).some(lim => !lim.is_configurado || lim.valor_minimo == null || lim.valor_maximo == null);
   });
+
+  const gatewaysPendentes = gateways.filter(gw => gw.estado === 'pendente');
 
   useEffect(() => {
     const carregarZonas = async () => {
@@ -51,6 +53,31 @@ export default function VisaoGeral({ boias = [], alertas = [], setAbaAtiva, isHe
             className="bg-amber-950 text-white px-8 py-4 rounded-xl font-black text-xs uppercase tracking-[0.2em] hover:bg-black transition-colors shadow-xl"
           >
             Configurar Aparelho
+          </button>
+        </section>
+      )}
+
+      {/* Alerta de Descoberta de Gateway */}
+      {gatewaysPendentes.length > 0 && (
+        <section className="mx-4 bg-emerald-50 border-2 border-emerald-200 p-4 md:p-6 rounded-[2rem] shadow-lg shadow-emerald-200/20 flex flex-col md:flex-row items-center justify-between gap-4 md:p-6 relative">
+          <div className="flex items-center gap-5">
+            <Tooltip text="Novo ponto de comunicação">
+              <div className="w-14 h-14 bg-emerald-500 rounded-2xl flex items-center justify-center text-2xl shadow-lg shadow-emerald-500/40 text-white cursor-help">
+                📡
+              </div>
+            </Tooltip>
+            <div>
+              <h3 className="text-xl font-black text-emerald-900 uppercase tracking-tight">Novo Hub Detetado!</h3>
+              <p className="text-emerald-700 font-bold text-xs uppercase tracking-widest mt-1">
+                Gateway ativo a aguardar parametrização: <span className="font-black text-emerald-950 underline">{gatewaysPendentes[0].mac_gateway}</span>
+              </p>
+            </div>
+          </div>
+          <button 
+            onClick={() => setAbaAtiva('equipamentos')}
+            className="bg-emerald-950 text-white px-8 py-4 rounded-xl font-black text-xs uppercase tracking-[0.2em] hover:bg-black transition-colors shadow-xl"
+          >
+            Configurar Hub
           </button>
         </section>
       )}
@@ -153,7 +180,7 @@ export default function VisaoGeral({ boias = [], alertas = [], setAbaAtiva, isHe
                         <div className="flex flex-col text-right cursor-help">
                             <span className="text-xs font-black text-slate-400 uppercase tracking-tighter">Estado Médio</span>
                             <span className={`text-lg font-black ${alertasNaZona.length > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
-                                {alertasNaZona.length > 0 ? 'Atenção' : 'Nominal'}
+                                {alertasNaZona.length > 0 ? 'Atenção' : 'Estável'}
                             </span>
                         </div>
                     </Tooltip>

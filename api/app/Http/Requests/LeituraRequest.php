@@ -14,14 +14,14 @@ class LeituraRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'mac' => 'required|string', // Retirado o 'exists' para permitir auto-discovery
-            'gateway' => 'nullable|string', // MAC do Gateway (opcional)
+            'mac' => 'required_without:gateway|string|nullable', // MAC da boia (pode ser null se for heartbeat do gateway)
+            'gateway' => 'required_without:mac|string|nullable', // MAC do Gateway
             'bateria_pct' => 'nullable|integer|between:0,100', // Bateria opcional da boia
-            'bateria_gateway' => 'nullable|integer|between:0,100', // Bateria opcional do gateway
+            'bateria_gateway' => 'nullable|numeric|between:0,100', // Bateria opcional do gateway
             'rssi' => 'nullable|integer', // Força do sinal LoRa
-            'leituras' => 'required|array|min:1', // Tem de enviar pelo menos 1 leitura
-            'leituras.*.tipo_sensor_id' => 'required|integer', // Permite auto-discovery de novos IDs
-            'leituras.*.valor' => 'required|numeric', // O valor tem de ser um número válido (float/int)
+            'leituras' => 'required_with:mac|array', // Tem de enviar leituras se enviar MAC da boia
+            'leituras.*.tipo_sensor_id' => 'required_with:leituras|integer',
+            'leituras.*.valor' => 'required_with:leituras|numeric',
         ];
     }
 

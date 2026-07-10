@@ -1,4 +1,3 @@
-
 #include <Arduino.h>
 #include <SPI.h>
 #include <LoRa.h>
@@ -19,7 +18,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 // --- CONFIGURAÇÕES DE REDE ---
 const char* ssid = "hidrobox";  
 const char* password = "12345678";  
-const char* serverName = "http://172.20.10.2:8000/api/leituras";
+const char* serverName = "http://192.168.1.75:8000/api/leituras";
 const char* apiKey = "hidrobox_segredo_2026";
 
 // --- CONFIGURAÇÃO CHAVE AES ---
@@ -37,6 +36,11 @@ const String aesKey = "HidroBoxKey2026!";
 
 // Variável global para armazenar o estado da bateria
 int percBateria = 0; 
+
+// --- CONTROLO DO HEARTBEAT ---
+const unsigned long INTERVALO_HEARTBEAT = 5 * 60 * 1000; // 5 minutos em milissegundos
+unsigned long ultimoHeartbeat = 0;
+bool primeiroHeartbeatEnviado = false; // Força um envio imediato ao ligar
 
 // --- FUNÇÃO AUXILIAR 1: CALCULAR BATERIA SEM REPETIR LÓGICA ---
 int lerBateriaGateway() {
@@ -125,6 +129,37 @@ void loop() {
        }
     }
 
+    // --- 3. HEARTBEAT DO GATEWAY (A cada 5 minutos ou no arranque) ---
+    if (!primeiroHeartbeatEnviado || (millis() - ultimoHeartbeat > INTERVALO_HEARTBEAT)) {
+        ultimoHeartbeat = millis();
+        primeiroHeartbeatEnviado = true;
+
+        if (WiFi.status() == WL_CONNECTED) {
+            // Cria um pacote JSON minimalista apenas com dados do Gateway
+            JsonDocument doc;
+            doc["gateway"] = WiFi.macAddress();
+            doc["bateria_gateway"] = percBateria;
+            // Omitimos "mac" da boia e "leituras", indicando à API que é apenas o Heartbeat
+
+            String jsonPayload;
+            serializeJson(doc, jsonPayload);
+
+            HTTPClient http;
+            http.begin(serverName);
+            http.addHeader("Content-Type", "application/json");
+            http.addHeader("X-HydroBox-Token", apiKey);
+
+            int httpResponseCode = http.POST(jsonPayload);
+            if (httpResponseCode == 201 || httpResponseCode == 200) {
+                Serial.println("[API] Heartbeat do Gateway enviado com sucesso.");
+            } else {
+                Serial.print("[API] ERRO no Heartbeat: ");
+                Serial.println(httpResponseCode);
+            }
+            http.end();
+        }
+    }
+
     // --- 2. RECEÇÃO LORA PACOTE A PACOTE ---
     int packetSize = LoRa.parsePacket();
 
@@ -144,7 +179,7 @@ void loop() {
       String recebido = String((char*)decrypted);
 
       Serial.println("\n--- Nova Mensagem LoRa Protegida ---");
-      Serial.print("Sinal (RSSI): "); Serial.print(rssi); Serial.println(" dBm");
+      Serial.print("Sinal (RSSI): "); Serial.print(rssi) ; Serial.println(" dBm");
       Serial.println("Texto Desencriptado: " + recebido);
 
       // --- PARSE (Split para os 8 parâmetros da boia) ---
@@ -239,4 +274,3 @@ void loop() {
       }
     }
 }
-

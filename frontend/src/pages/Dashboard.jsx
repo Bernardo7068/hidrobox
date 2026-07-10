@@ -146,6 +146,11 @@ export default function Dashboard({ onLogout, user, setUser }) {
   useEffect(() => {
     carregarDadosGlobais();
     
+    // Polling de segurança (fallback caso WebSockets falhem)
+    const timer = setInterval(() => {
+      carregarDadosGlobais();
+    }, 30000);
+    
     // 1. Inicializar a ligação ao servidor WebSocket
     const hostname = window.location.hostname;
     const wsUrl = import.meta.env.VITE_WS_URL || `http://${hostname}:3001`;
@@ -192,7 +197,8 @@ export default function Dashboard({ onLogout, user, setUser }) {
     });
     
     return () => {
-      socket.disconnect(); // Desligar quando sair do Dashboard
+      clearInterval(timer);
+      socket.disconnect();
     };
   }, []);
 
@@ -221,7 +227,7 @@ export default function Dashboard({ onLogout, user, setUser }) {
 
         <main className="flex-1 overflow-y-auto p-4 md:p-12">
           {abaAtiva === 'guia' && <GuiaUtilizador setAbaAtiva={setAbaAtiva} onStartTour={() => setMostrarTour(true)} />}
-          {abaAtiva === 'visao-geral' && <VisaoGeral boias={boias} alertas={alertas} setAbaAtiva={setAbaAtiva} isHelpMode={isHelpMode} onAtualizar={carregarDadosGlobais} />}
+          {abaAtiva === 'visao-geral' && <VisaoGeral boias={boias} alertas={alertas} gateways={gateways} setAbaAtiva={setAbaAtiva} isHelpMode={isHelpMode} onAtualizar={carregarDadosGlobais} />}
           
           {abaAtiva === 'mapa' && (
             <MapaEstacoes boias={boias} gateways={gateways} isHelpMode={isHelpMode} />
