@@ -15,10 +15,17 @@ use Illuminate\Support\Facades\Http;
 
 class BoiaController extends Controller
 {
-    public function getGateways()
+    public function getGateways(Request $request)
     {
+        $user = auth()->user();
+        
         // 1. Verificação Pseudo-Cron de Estado (Heartbeat)
-        $gateways = Gateway::whereIn('estado', ['ativo', 'pendente'])->get();
+        $gateways = Gateway::whereIn('estado', ['ativo', 'pendente'])
+            ->where(function($query) use ($user) {
+                if ($user->role !== 'super_admin') {
+                    $query->where('empresa_id', $user->empresa_id)->orWhereNull('empresa_id');
+                }
+            })->get();
         $agora = Carbon::now();
 
         foreach ($gateways as $gateway) {
@@ -64,11 +71,18 @@ class BoiaController extends Controller
         }
 
         // 2. Retornar os gateways atualizados
-        return response()->json(Gateway::with('boias')->get());
+        $queryGateways = Gateway::with('boias');
+        if ($user->role !== 'super_admin') {
+            $queryGateways->where(function($query) use ($user) {
+                $query->where('empresa_id', $user->empresa_id)->orWhereNull('empresa_id');
+            });
+        }
+        return response()->json($queryGateways->get());
     }
 
     public function storeGateway(Request $request)
     {
+        $user = auth()->user();
         $validated = $request->validate([
             'mac_gateway' => 'required|string',
             'nome' => 'required|string|max:255',
@@ -84,7 +98,8 @@ class BoiaController extends Controller
                 'latitude' => $validated['latitude'],
                 'longitude' => $validated['longitude'],
                 'raio_cobertura' => $validated['raio_cobertura'],
-                'estado' => 'ativo' // Ao configurar manualmente, passa a ativo
+                'estado' => 'ativo', // Ao configurar manualmente, passa a ativo
+                'empresa_id' => $user->empresa_id
             ]
         );
         
@@ -96,6 +111,7 @@ class BoiaController extends Controller
 
     public function updateGateway(Request $request, $id)
     {
+        $user = auth()->user();
         $gateway = Gateway::findOrFail($id);
         $validated = $request->validate([
             'nome' => 'sometimes|string|max:255',
@@ -104,6 +120,10 @@ class BoiaController extends Controller
             'raio_cobertura' => 'nullable|integer',
             'estado' => 'sometimes|string|in:ativo,manutencao,erro,offline'
         ]);
+
+        if ($user->role !== 'super_admin' && !$gateway->empresa_id) {
+            $validated['empresa_id'] = $user->empresa_id;
+        }
 
         $gateway->update($validated);
         return response()->json(['sucesso' => true, 'gateway' => $gateway]);

@@ -9,6 +9,7 @@ class Gateway extends Model
     protected $table = 'gateways';
 
     protected $fillable = [
+        'empresa_id',
         'mac_gateway',
         'nome',
         'latitude',
@@ -20,5 +21,10 @@ class Gateway extends Model
     public function boias()
     {
         return $this->hasMany(Boia::class);
+    }
+
+    public function empresa()
+    {
+        return $this->belongsTo(Empresa::class);
     }
 }

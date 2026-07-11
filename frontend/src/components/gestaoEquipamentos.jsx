@@ -1158,7 +1158,7 @@ export default function GestaoEquipamentos({ isHelpMode, onAtualizar }) {
                                                 {boiasPendentes.length > 0 && (
                                                     <div className="absolute right-2 top-2 bottom-2">
                                                         <select 
-                                                            className="h-full bg-slate-800 text-white border-none rounded-xl text-[10px] font-black uppercase px-2 cursor-pointer hover:bg-slate-700 transition-colors"
+                                                            className="h-full max-w-[100px] md:max-w-[120px] truncate bg-slate-800 text-white border-none rounded-xl text-[10px] font-black uppercase px-2 cursor-pointer hover:bg-slate-700 transition-colors"
                                                             onChange={(e) => {
                                                                 if (e.target.value) {
                                                                     const selected = boiasPendentes.find(b => b.mac_boia === e.target.value);
