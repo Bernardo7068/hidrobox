@@ -1,77 +1,192 @@
-# 🛠️ Manual do Desenvolvedor: HidroBox (Stack Técnica)
+# 🛠️ Manual do Desenvolvedor: HydroBox (Stack Técnica)
 
-Este documento compila as dependências, bibliotecas utilizadas e os comandos vitais de cada um dos 3 pilares de software do projeto HidroBox.
+Este documento compila as dependências, bibliotecas utilizadas e os comandos vitais de cada um dos 4 pilares de software do ecossistema HydroBox.
+
+---
+
+## 🛑 Pré-Requisitos do Sistema
+Antes de executares qualquer comando listado neste manual, o ambiente de desenvolvimento deve conter:
+- **Node.js (v18+) e NPM:** Necessário para o Frontend (React) e para o Microserviço de WebSockets.
+- **PHP (v8.2+) e Composer:** Necessário para instalar dependências e correr a API em Laravel.
+- **Arduino IDE (v2.0+) ou PlatformIO:** Necessário para compilar e injetar o código nos microcontroladores ESP32.
+- **Git:** Recomendado para gestão de versões e clonagem do repositório.
 
 ---
 
 ## 1. 🖥️ Frontend (Interface do Utilizador)
 **Localização:** `/frontend`
 
-A aplicação cliente foi construída para ser rápida, reativa e visualmente moderna (estilo Dashboard), compatível com computadores e telemóveis.
+A aplicação cliente (Single Page Application) foi construída para ser reativa e visualmente moderna, garantindo fluidez sem recarregamentos de página.
 
 ### 📦 Bibliotecas e Tecnologias Principais:
-- **React 19:** O "motor" da interface (baseado em Hooks funcionais).
-- **Vite:** O compilador ultra-rápido que empacota o código React.
-- **Tailwind CSS v3/v4:** Framework de CSS utilitário usado para desenhar 100% do visual (Dark modes, gradientes, responsividade e escalas móveis).
-- **Axios:** Cliente HTTP principal para comunicar de forma assíncrona com a API do Laravel.
-- **Socket.io-client:** Responsável por escutar e conectar aos eventos em tempo real do servidor NodeJS.
-- **Leaflet & React-Leaflet:** Usados na secção "Mapa das Estações" para renderizar os mapas com as localizações GPS.
-- **Recharts:** Biblioteca modular usada para gerar os gráficos interativos de histórico de parâmetros da água.
-- **Vite PWA Plugin:** Permite que a aplicação seja instalada nos ecrãs de telemóvel (como uma app nativa progressiva).
+- **React & Vite:** Motor principal baseado em Hooks e compilador bundler ultra-rápido.
+- **Tailwind CSS:** Framework utilitária para o design visual.
+- **Axios:** Cliente HTTP para comunicar de forma assíncrona com a API.
+- **Socket.io-client:** Conexão aos eventos em tempo real do servidor Node.js.
+- **Leaflet, React-Leaflet & Recharts:** Renderização de mapas geográficos e gráficos analíticos.
+- **Vite PWA Plugin:** Permite instalação no telemóvel como app nativa progressiva.
 
-### 🚀 Comandos Importantes:
-*Dica: Abre a linha de comandos na pasta `frontend`.*
-- `npm install` : Instala todas as dependências pela primeira vez.
-- `npm run dev` : Inicia o ambiente de desenvolvimento local (para testares no PC).
-- `npm run dev --host` : **(Crucial)** Inicia o servidor, mas abre-o à tua rede Wi-Fi para poderes testar com o teu smartphone!
-- `npm run build` : Compila e empacota o código para produção (quando fores lançar o projeto online).
+### 🚀 Comandos de Terminal (Frontend)
+
+#### Passo 1: Instalação e Configuração Inicial (Construção do zero)
+
+| Comando | Descrição Operacional |
+| :--- | :--- |
+| `npm create vite@latest . -- --template react` | Cria a estrutura base do projeto React com Vite. |
+| `npm install axios react-leaflet leaflet recharts socket.io-client @heroicons/react` | Instala as bibliotecas específicas (gráficos, mapas, websockets e ícones). |
+| `npm install -D tailwindcss postcss autoprefixer vite-plugin-pwa` | Instala o Tailwind CSS e o plugin PWA como dependências de desenvolvimento. |
+| `npx tailwindcss init -p` | Gera os ficheiros de configuração do Tailwind e PostCSS. |
+
+#### Passo 2: Execução Diária (Para testar e compilar)
+
+| Comando | Descrição Operacional |
+| :--- | :--- |
+| `npm install` | Instala e repara todas as dependências a partir do package.json. |
+| `npm run dev` | Inicia o servidor local de desenvolvimento. |
+| `npm run dev --host` | **[CRUCIAL]** Abre o servidor e aceita conexoes de qualquer ip |
+| `npm run build` | Compila, minifica e empacota o código React para ambiente de produção. |
 
 ---
 
 ## 2. ⚙️ API (Cérebro do Sistema e Base de Dados)
 **Localização:** `/api`
 
-O Backend foi construído numa framework robusta para garantir validação de dados avançada, lógica de negócio complexa, Proteção Multi-Tenant (isolamento de empresas) e autenticação.
+O Backend atua como a sentinela do sistema. Baseado na arquitetura MVC, garante a validação estrita dos dados que chegam do terreno, o isolamento das empresas (Multi-Tenant) e a autenticação humana.
 
 ### 📦 Bibliotecas e Tecnologias Principais:
-- **PHP 8.3 & Laravel 11/13:** O núcleo do backend, usando a arquitetura MVC (Model-View-Controller).
-- **Laravel Sanctum:** O "segurança" do sistema. Gera e verifica os Tokens Bearer (para autenticação).
-- **SQLite / MySQL:** A base de dados relacional que guarda todo o historial (Leituras, Boias, Alertas).
-- **GuzzleHTTP / Laravel Http:** Usado internamente para o Laravel disparar os *Webhooks* (avisos) para o servidor de WebSockets.
+- **PHP 8.3 & Laravel 11:** O núcleo da API RESTful e do motor ORM (Eloquent).
+- **Laravel Sanctum:** Emissão e validação de Tokens Bearer para proteção de rotas.
+- **MySQL:** O motor de base de dados relacional.
+- **DomPDF & GuzzleHTTP:** Processamento de relatórios PDF e disparo de Webhooks.
 
-### 🚀 Comandos Importantes:
-*Dica: Abre a linha de comandos na pasta `api`.*
-- `composer install` : Instala todas as dependências PHP do ecossistema Laravel.
-- `php artisan serve` : Liga o servidor web do Laravel para desenvolvimento.
-- `php artisan serve --host=0.0.0.0` : **(Crucial)** Liga o servidor e permite que o telemóvel consiga comunicar com a base de dados pela rede Wi-Fi!
-- `php artisan migrate` : Atualiza a base de dados (cria todas as tabelas e relações necessárias).
-- `php artisan tinker` : Uma consola interativa de testes onde podes pesquisar na base de dados diretamente através de código (ex: `App\Models\Boia::all()`).
+### 🚀 Comandos de Terminal (API Laravel)
+
+#### Passo 1: Instalação e Configuração Inicial (Construção do zero)
+
+| Comando | Descrição Operacional |
+| :--- | :--- |
+| `composer create-project laravel/laravel .` | Inicializa o projeto vazio do Laravel na pasta. |
+| `php artisan install:api` | Instala o Sanctum, publica as migrações e prepara as rotas de API (Laravel 11). |
+| `php artisan migrate` | Atualiza a base de dados (cria todas as tabelas e relações necessárias). |
+
+#### Passo 2: Execução Diária (Para testar e compilar)
+
+| Comando | Descrição Operacional |
+| :--- | :--- |
+| `composer install` | Instala as dependências base PHP a partir do composer.json. |
+| `php artisan migrate:fresh --seed` | Apaga a base de dados, reconstrói as tabelas e injeta dados de teste. |
+| `php artisan serve` | Liga o servidor nativo na porta localhost:8000. |
+| `php artisan serve --host=0.0.0.0` | **[CRUCIAL]** Permite que dispositivos da rede local e o Gateway acedam à API. |
+| `php artisan tinker` | Abre a consola interativa de testes à base de dados. |
 
 ---
 
-## 3. 📡 WebSockets (Gateway de Tempo Real)
+## 3. 📡 WebSockets (Microserviço de Tempo Real)
 **Localização:** `/websockets`
 
-Este é o nosso Microserviço focado em velocidade de transmissão (*Broadcaster*). Ele não guarda dados, apenas distribui as mensagens da API para os clientes em frações de segundo (Pub/Sub Pattern).
+Este microserviço é um Broadcaster puro. Opera como mediador recebendo o aviso do Laravel e distribuindo as notificações para os navegadores instantaneamente.
 
 ### 📦 Bibliotecas e Tecnologias Principais:
-- **Node.js:** O ambiente que permite correr Javascript como um servidor.
-- **Express:** Um mini-servidor web que nós usamos apenas para abrir o *endpoint* `/api/broadcast` que recebe a informação (Webhook) do Laravel.
-- **Socket.io:** A tecnologia "Server-Side" de WebSockets que mantém as ligações abertas e persistentes (TCP) com os telemóveis e computadores dos clientes.
-- **Cors:** Regras de segurança para permitir que o Front-End (que está noutra porta ou noutro IP) consiga falar com o Node sem ser bloqueado pelos navegadores.
-- **Dotenv:** Carrega variáveis protegidas (tokens internos) do ficheiro `.env`.
+- **Node.js & Express:** Ambiente de execução e mini-servidor web.
+- **Socket.io:** Mantém túneis TCP abertos com os clientes (React).
+- **Cors & Dotenv:** Regras de segurança de rede e carregamento de chaves secretas.
 
-### 🚀 Comandos Importantes:
-*Dica: Abre a linha de comandos na pasta `websockets`.*
-- `npm install` : Instala o socket.io e o express.
-- `node server.js` ou `npm start` : Comando oficial de produção. Liga o servidor de forma direta e limpa. Por defeito abre na porta 3001 para a rede (`0.0.0.0`).
-- `npm run dev` : Inicia o NodeJS em modo "Vigia" (Watch). Se alterares o código do `server.js` e guardares, ele reinicia o servidor sozinho.
+### 🚀 Comandos de Terminal (WebSockets)
+
+#### Passo 1: Instalação e Configuração Inicial (Construção do zero)
+
+| Comando | Descrição Operacional |
+| :--- | :--- |
+| `npm init -y` | Inicia a pasta como um projeto Node.js em branco. |
+| `npm install express socket.io cors dotenv` | Instala os módulos principais necessários para o funcionamento. |
+| `npm install -D nodemon` | Instala a ferramenta de "Vigia" para desenvolvimento ativo. |
+
+#### Passo 2: Execução Diária (Para testar e compilar)
+
+| Comando | Descrição Operacional |
+| :--- | :--- |
+| `npm install` | Instala as dependências a partir do package.json após clonar o projeto. |
+| `node server.js` | Inicia o servidor em modo oficial (Produção). Ocupa a porta 3001. |
+| `npm run dev` | Inicia via nodemon. (Requer adicionar `"dev": "nodemon server.js"` aos scripts do package.json). |
 
 ---
 
-## 🔗 Fluxo da Arquitetura em Ação:
-Para entenderes como estas 3 peças "dançam" juntas:
-1. **O Hardware (ESP32)** faz **POST** (telemetria) -> `API (Laravel)`.
-2. A **API** avalia os dados, verifica limites, gera alertas, guarda na Base de Dados e, por fim, dispara um **POST HTTP silencioso** -> `WebSockets (Node.js)`.
-3. O **WebSockets** recebe esse sinal e emite um evento instantâneo via protocolo `WS` -> `Frontend (Browser/Telemóvel)`.
-4. O **Frontend** recebe o evento sem precisares de fazer refresh à página, atualizando os cartões e gráficos dinamicamente!
+## 4. 🎛️ Firmware (Gateway e Boia Sensorial)
+**Localização:** `/firmware`
+
+O código C++ (Arduino) embarcado nos microcontroladores ESP32, encarregue do contacto físico com a água e com a rede rádio.
+
+### 📦 Bibliotecas Principais:
+- **LoRa.h & SPI.h:** Gestão do transceptor rádio de 868 MHz e empacotamento binário.
+- **mbedtls (Nativa):** Encriptação simétrica AES-128 via hardware.
+- **OneWire & DallasTemperature:** Comunicação digital térmica.
+- **DFRobot_ESP_PH & ArduinoJson:** Compensação do pH e estruturação JSON.
+- **HTTPClient & WiFi.h:** Ferramentas do Gateway para submeter pacotes HTTP seguros.
+
+---
+
+## 🔐 Configuração das Variáveis de Ambiente (.env)
+
+Por razões de segurança, os ficheiros `.env` nunca são enviados para o repositório Git. Terás de criar manualmente um ficheiro `.env` na raiz de cada um dos três projetos de software e configurar as seguintes pontes de comunicação:
+
+### 1. Variáveis da API (Laravel)
+**Ficheiro:** `/api/.env`
+
+```env
+APP_NAME=HydroBox
+APP_ENV=local
+APP_URL=http://localhost:8000
+
+# Conexão à Base de Dados MySQL
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=hydrobox_db
+DB_USERNAME=root
+DB_PASSWORD=tua_password_aqui
+
+# Endereço do Servidor WebSockets para envio de Webhooks
+WS_SERVER_URL=http://127.0.0.1:3001/api/broadcast
+
+# Token de Segurança (Obrigatório bater certo com o código do Gateway)
+GATEWAY_SECRET_TOKEN=HydroBoxKey2026!
+```
+
+### 2. Variáveis dos WebSockets (Node.js)
+**Ficheiro:** `/websockets/.env`
+
+```env
+# Porta de Operação do Node.js
+PORT=3001
+
+# Qual é o endereço do Frontend que tem permissão para se conectar?
+CORS_ORIGIN=http://localhost:5173
+
+# Chave secreta para garantir que os avisos vêm mesmo da API Laravel
+LARAVEL_SECRET=HydroBoxKey2026!
+```
+
+### 3. Variáveis do Frontend (React / Vite)
+**Ficheiro:** `/frontend/.env` (ou `.env.local`)
+
+```env
+# Endereço central da API Laravel
+VITE_API_BASE_URL=http://localhost:8000/api
+
+# Endereço do Servidor de WebSockets (Node.js)
+VITE_WS_SERVER_URL=http://localhost:3001
+```
+
+> **Nota Adicional para Testes Locais:** Se fores testar a plataforma no telemóvel através da tua rede Wi-Fi, deverás substituir os endereços `localhost` ou `127.0.0.1` nestes ficheiros pelo endereço IP local do teu computador (por exemplo, `192.168.1.87`).
+
+---
+
+## 🔗 O Fluxo da Arquitetura em Ação
+
+Para compreender como as 4 peças comunicam de forma encadeada no ecossistema:
+
+1. **O Nó Sensor (Boia)** acorda, capta os dados da água, encripta-os e emite-os num pacote rádio (LoRa) a 868 MHz.
+2. **O Gateway IoT** em terra interceta o sinal rádio, desencripta-o, converte-o para JSON e efetua um POST HTTP com token para a API (Laravel).
+3. **A API** valida, regista os dados, verifica limites ecológicos e gera alertas na base de dados MySQL. Seguidamente, dispara um POST HTTP silencioso ao Microserviço WebSockets (Node.js).
+4. **O Node.js** reencaminha essa mensagem via túnel WS apenas para os dispositivos corretos, aplicando isolamento Multi-Tenant.
+5. **O Frontend (React)** interceta o evento e atualiza automaticamente os gráficos e cartões no ecrã, sem necessidade de o utilizador recarregar a página.
