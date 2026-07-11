@@ -96,7 +96,7 @@ export default function Sidebar({ setAbaAtiva, abaAtiva, role, onLogout, isSideb
             </button>
         </Tooltip>
         <div className="mt-6 flex flex-col items-center opacity-40">
-            <div className="text-[9px] font-black uppercase tracking-widest">Protocolo Lis v1.2.0</div>
+            <div className="text-[9px] font-black uppercase tracking-widest">HydroBox v1</div>
             <div className="w-12 h-1 bg-blue-400/30 rounded-full mt-2"></div>
         </div>
       </div>
