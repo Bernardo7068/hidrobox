@@ -141,16 +141,17 @@ export default function GestaoEquipamentos({ isHelpMode, onAtualizar }) {
     };
 
     // Novo estado para criação de gateway
-    const [formGateway, setFormGateway] = useState({ mac_gateway: '', nome: '', latitude: '', longitude: '', raio_cobertura: 1000 });
+    const [formGateway, setFormGateway] = useState({ mac_gateway: '', nome: '', latitude: '', longitude: '', raio_cobertura: 1000, gatewayOwner: 'public' });
     // Estado para edição de gateway
     const [editandoGatewayId, setEditandoGatewayId] = useState(null);
-    const [formEditGateway, setFormEditGateway] = useState({});
+    const [formEditGateway, setFormEditGateway] = useState({ gatewayOwner: 'public' });
 
     // Estados para Gestão de Zonas
     const [isModalZonasOpen, setIsModalZonasOpen] = useState(false);
     const [formNovaZona, setFormNovaZona] = useState({ nome: '', concelho: '' });
     const [editandoZonaId, setEditandoZonaId] = useState(null);
     const [formEditZona, setFormEditZona] = useState({ nome: '', concelho: '' });
+    const [empresas, setEmpresas] = useState([]);
 
     // Lógica para calcular missões pendentes (necessária para o badge da aba)
     const getMissionsCount = () => {
@@ -316,9 +317,11 @@ export default function GestaoEquipamentos({ isHelpMode, onAtualizar }) {
 
     const carregarDadosIniciais = async () => {
         try {
-            const [resZonas, resBoias, resTipos, resGateways] = await Promise.all([
-                api.get('/zonas'), api.get('/boias'), api.get('/tipos-sensor'), api.get('/gateways')
-            ]);
+            const requests = [api.get('/zonas'), api.get('/boias'), api.get('/tipos-sensor'), api.get('/gateways')];
+            if (user.role === 'super_admin') {
+                requests.push(api.get('/empresas'));
+            }
+            const [resZonas, resBoias, resTipos, resGateways, resEmpresas] = await Promise.all(requests);
 
             // No inventário, queremos as leituras recentes para cada boia
             const boiasComLeituras = await Promise.all(
@@ -334,6 +337,7 @@ export default function GestaoEquipamentos({ isHelpMode, onAtualizar }) {
             setBoias(boiasComLeituras);
             setTiposSensor(resTipos.data);
             setGateways(resGateways.data);
+            if (resEmpresas) setEmpresas(resEmpresas.data);
 
             // Sincronizar boiaDetalhe se estiver aberta
             if (boiaDetalhe) {
@@ -349,16 +353,36 @@ export default function GestaoEquipamentos({ isHelpMode, onAtualizar }) {
     const handleCriarGateway = async (e) => {
         e.preventDefault();
         try {
-            await api.post('/gateways', formGateway);
+            const payload = { ...formGateway };
+            if (user?.role === 'super_admin' && payload.gatewayOwner) {
+                if (payload.gatewayOwner === 'public') {
+                    payload.is_public = true;
+                    payload.empresa_id = null;
+                } else {
+                    payload.is_public = false;
+                    payload.empresa_id = parseInt(payload.gatewayOwner);
+                }
+            }
+            await api.post('/gateways', payload);
             mostrarMensagem('Novo Gateway registado na infraestrutura!', 'sucesso');
-            setFormGateway({ mac_gateway: '', nome: '', latitude: '', longitude: '', raio_cobertura: 1000 });
+            setFormGateway({ mac_gateway: '', nome: '', latitude: '', longitude: '', raio_cobertura: 1000, gatewayOwner: 'public' });
             carregarDadosIniciais();
         } catch (error) { mostrarMensagem('Erro ao registar gateway.', 'erro'); }
     };
 
     const guardarEdicaoGateway = async (id) => {
         try {
-            await api.put(`/gateways/${id}`, formEditGateway);
+            const payload = { ...formEditGateway };
+            if (user?.role === 'super_admin' && payload.gatewayOwner) {
+                if (payload.gatewayOwner === 'public') {
+                    payload.is_public = true;
+                    payload.empresa_id = null;
+                } else {
+                    payload.is_public = false;
+                    payload.empresa_id = parseInt(payload.gatewayOwner);
+                }
+            }
+            await api.put(`/gateways/${id}`, payload);
             mostrarMensagem('Torre atualizada com sucesso!', 'sucesso');
             setEditandoGatewayId(null);
             carregarDadosIniciais();
@@ -1870,6 +1894,21 @@ export default function GestaoEquipamentos({ isHelpMode, onAtualizar }) {
                                                             className={inputClass} placeholder="Ex: Gateway Porto-01"
                                                         />
                                                     </div>
+                                                    {user?.role === 'super_admin' && (
+                                                        <div>
+                                                            <label className={labelClass}>Pertence a / Rede</label>
+                                                            <select 
+                                                                value={formGateway.gatewayOwner} 
+                                                                onChange={e => setFormGateway({...formGateway, gatewayOwner: e.target.value})} 
+                                                                className={`${inputClass} appearance-none cursor-pointer`}
+                                                            >
+                                                                <option value="public">Rede Pública HydroBox (Comunitário)</option>
+                                                                {empresas.map(emp => (
+                                                                    <option key={emp.id} value={emp.id}>{emp.nome}</option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+                                                    )}
                                                     <div>
                                                         <label className={labelClass}>Endereço MAC (Fixo)</label>
                                                         <input 
@@ -2118,7 +2157,19 @@ export default function GestaoEquipamentos({ isHelpMode, onAtualizar }) {
                                                         <input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-black text-slate-800" placeholder="Latitude" value={formEditGateway.latitude || ''} onChange={e => setFormEditGateway({...formEditGateway, latitude: e.target.value})} />
                                                         <input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-black text-slate-800" placeholder="Longitude" value={formEditGateway.longitude || ''} onChange={e => setFormEditGateway({...formEditGateway, longitude: e.target.value})} />
                                                     </div>
-                                                    <p className="text-[10px] text-amber-600 font-bold uppercase tracking-widest bg-amber-50 p-2 rounded-lg">📍 Dica: Clica no mapa ali em cima para atualizar as coordenadas automaticamente.</p>
+                                                    {user?.role === 'super_admin' && (
+                                                        <select 
+                                                            value={formEditGateway.gatewayOwner || 'public'} 
+                                                            onChange={e => setFormEditGateway({...formEditGateway, gatewayOwner: e.target.value})} 
+                                                            className="w-full mt-4 bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-black text-slate-800"
+                                                        >
+                                                            <option value="public">Rede Pública HydroBox</option>
+                                                            {empresas.map(emp => (
+                                                                <option key={emp.id} value={emp.id}>{emp.nome}</option>
+                                                            ))}
+                                                        </select>
+                                                    )}
+                                                    <p className="text-[10px] text-amber-600 font-bold uppercase tracking-widest bg-amber-50 p-2 rounded-lg mt-4">💡 Dica: Clica no mapa ali em cima para atualizar as coordenadas automaticamente.</p>
                                                     <div className="flex justify-end gap-4 mt-6">
                                                         <button onClick={() => setEditandoGatewayId(null)} className="text-slate-400 font-black text-xs uppercase tracking-widest hover:text-slate-600 transition-colors">Cancelar</button>
                                                         <button onClick={() => guardarEdicaoGateway(gw.id)} className="bg-amber-500 text-white px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-amber-500/30 hover:bg-amber-600 hover:shadow-amber-500/50 transition-all">Guardar Torre</button>

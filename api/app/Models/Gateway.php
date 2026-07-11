@@ -10,12 +10,17 @@ class Gateway extends Model
 
     protected $fillable = [
         'empresa_id',
+        'is_public',
         'mac_gateway',
         'nome',
         'latitude',
         'longitude',
         'raio_cobertura',
         'estado'
+    ];
+
+    protected $casts = [
+        'is_public' => 'boolean',
     ];
 
     public function boias()

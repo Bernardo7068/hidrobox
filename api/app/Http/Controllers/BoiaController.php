@@ -23,7 +23,11 @@ class BoiaController extends Controller
         $gateways = Gateway::whereIn('estado', ['ativo', 'pendente'])
             ->where(function($query) use ($user) {
                 if ($user->role !== 'super_admin') {
-                    $query->where('empresa_id', $user->empresa_id)->orWhereNull('empresa_id');
+                    $query->where('empresa_id', $user->empresa_id)
+                          ->orWhere('is_public', true)
+                          ->orWhere(function($q) {
+                              $q->whereNull('empresa_id')->where('estado', 'pendente');
+                          });
                 }
             })->get();
         $agora = Carbon::now();
@@ -74,7 +78,11 @@ class BoiaController extends Controller
         $queryGateways = Gateway::with('boias');
         if ($user->role !== 'super_admin') {
             $queryGateways->where(function($query) use ($user) {
-                $query->where('empresa_id', $user->empresa_id)->orWhereNull('empresa_id');
+                $query->where('empresa_id', $user->empresa_id)
+                      ->orWhere('is_public', true)
+                      ->orWhere(function($q) {
+                          $q->whereNull('empresa_id')->where('estado', 'pendente');
+                      });
             });
         }
         return response()->json($queryGateways->get());
@@ -89,18 +97,29 @@ class BoiaController extends Controller
             'latitude' => 'nullable|numeric',
             'longitude' => 'nullable|numeric',
             'raio_cobertura' => 'nullable|integer',
+            'is_public' => 'sometimes|boolean',
+            'empresa_id' => 'sometimes|nullable|integer|exists:empresas,id'
         ]);
+
+        $dadosGateway = [
+            'nome' => $validated['nome'],
+            'latitude' => $validated['latitude'],
+            'longitude' => $validated['longitude'],
+            'raio_cobertura' => $validated['raio_cobertura'],
+            'estado' => 'ativo', // Ao configurar manualmente, passa a ativo
+        ];
+
+        if ($user->role === 'super_admin') {
+            $dadosGateway['is_public'] = $validated['is_public'] ?? false;
+            $dadosGateway['empresa_id'] = $dadosGateway['is_public'] ? null : ($validated['empresa_id'] ?? null);
+        } else {
+            $dadosGateway['is_public'] = false;
+            $dadosGateway['empresa_id'] = $user->empresa_id;
+        }
 
         $gateway = Gateway::updateOrCreate(
             ['mac_gateway' => $validated['mac_gateway']],
-            [
-                'nome' => $validated['nome'],
-                'latitude' => $validated['latitude'],
-                'longitude' => $validated['longitude'],
-                'raio_cobertura' => $validated['raio_cobertura'],
-                'estado' => 'ativo', // Ao configurar manualmente, passa a ativo
-                'empresa_id' => $user->empresa_id
-            ]
+            $dadosGateway
         );
         
         // Tentar vincular boias órfãs que já usam este MAC
@@ -118,11 +137,21 @@ class BoiaController extends Controller
             'latitude' => 'nullable|numeric',
             'longitude' => 'nullable|numeric',
             'raio_cobertura' => 'nullable|integer',
-            'estado' => 'sometimes|string|in:ativo,manutencao,erro,offline'
+            'estado' => 'sometimes|string|in:ativo,manutencao,erro,offline',
+            'is_public' => 'sometimes|boolean',
+            'empresa_id' => 'sometimes|nullable|integer|exists:empresas,id'
         ]);
 
-        if ($user->role !== 'super_admin' && !$gateway->empresa_id) {
-            $validated['empresa_id'] = $user->empresa_id;
+        if ($user->role === 'super_admin') {
+            if (isset($validated['is_public']) && $validated['is_public']) {
+                $validated['empresa_id'] = null;
+            }
+        } else {
+            unset($validated['is_public']);
+            unset($validated['empresa_id']);
+            if (!$gateway->is_public && !$gateway->empresa_id) {
+                $validated['empresa_id'] = $user->empresa_id;
+            }
         }
 
         $gateway->update($validated);
@@ -288,6 +317,19 @@ class BoiaController extends Controller
             $zona = Zona::find($dadosValidados['zona_id']);
             if ($zona->empresa_id !== $user->empresa_id) {
                 return response()->json(['sucesso' => false, 'mensagem' => 'Não tem permissão para esta zona.'], 403);
+            }
+
+            // Validar e Reivindicar o Gateway
+            if (!empty($dadosValidados['mac_gateway'])) {
+                $gateway = Gateway::where('mac_gateway', $dadosValidados['mac_gateway'])->first();
+                if ($gateway) {
+                    if (!$gateway->is_public && $gateway->empresa_id !== null && $gateway->empresa_id !== $user->empresa_id) {
+                        return response()->json(['sucesso' => false, 'mensagem' => 'Este Gateway pertence a outra empresa e não pode ser usado.'], 403);
+                    }
+                    if (!$gateway->is_public && $gateway->empresa_id === null) {
+                        $gateway->update(['empresa_id' => $user->empresa_id]); // Reivindica o gateway
+                    }
+                }
             }
         }
 
@@ -472,10 +514,23 @@ class BoiaController extends Controller
         ]);
 
         // Se mudar de zona, verificar se a nova zona pertence à mesma empresa
-        if (isset($validated['zona_id']) && $user->role !== 'super_admin') {
-            $novaZona = Zona::find($validated['zona_id']);
-            if ($novaZona->empresa_id !== $user->empresa_id) {
-                return response()->json(['sucesso' => false, 'mensagem' => 'Acesso negado à nova zona.'], 403);
+        if ($user && $user->role !== 'super_admin') {
+            if (isset($validated['zona_id'])) {
+                $zonaNova = Zona::find($validated['zona_id']);
+                if ($zonaNova && $zonaNova->empresa_id !== $user->empresa_id) {
+                    return response()->json(['sucesso' => false, 'mensagem' => 'Acesso negado à zona destino.'], 403);
+                }
+            }
+            if (!empty($validated['mac_gateway'])) {
+                $gateway = Gateway::where('mac_gateway', $validated['mac_gateway'])->first();
+                if ($gateway) {
+                    if (!$gateway->is_public && $gateway->empresa_id !== null && $gateway->empresa_id !== $user->empresa_id) {
+                        return response()->json(['sucesso' => false, 'mensagem' => 'Este Gateway pertence a outra empresa e não pode ser usado.'], 403);
+                    }
+                    if (!$gateway->is_public && $gateway->empresa_id === null) {
+                        $gateway->update(['empresa_id' => $user->empresa_id]); // Reivindica o gateway
+                    }
+                }
             }
         }
 

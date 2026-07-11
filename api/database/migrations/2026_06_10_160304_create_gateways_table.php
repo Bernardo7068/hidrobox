@@ -11,6 +11,7 @@ return new class extends Migration
         Schema::create('gateways', function (Blueprint $blueprint) {
             $blueprint->id();
             $blueprint->foreignId('empresa_id')->nullable()->constrained('empresas')->onDelete('cascade');
+            $blueprint->boolean('is_public')->default(false);
             $blueprint->string('mac_gateway')->unique();
             $blueprint->string('nome');
             $blueprint->decimal('latitude', 10, 7)->nullable();

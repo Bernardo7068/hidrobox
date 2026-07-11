@@ -16,7 +16,9 @@ class GatewaySeeder extends Seeder
             'longitude' => -8.8075,
             'raio_cobertura' => 5000,
             'estado' => 'ativo',
-            'bateria' => 100
+            'bateria' => 100,
+            'is_public' => true,
+            'empresa_id' => null // Rede Pública
         ]);
 
         // Hub Mondego
@@ -26,7 +28,9 @@ class GatewaySeeder extends Seeder
             'longitude' => -8.4100,
             'raio_cobertura' => 3000,
             'estado' => 'ativo',
-            'bateria' => 85
+            'bateria' => 85,
+            'is_public' => false,
+            'empresa_id' => 1 // Privado Empresa 1
         ]);
 
         // Hub Sines
@@ -36,7 +40,9 @@ class GatewaySeeder extends Seeder
             'longitude' => -8.8710,
             'raio_cobertura' => 10000,
             'estado' => 'ativo',
-            'bateria' => 40 // Para simular bateria baixa
+            'bateria' => 40, // Para simular bateria baixa
+            'is_public' => false,
+            'empresa_id' => null // Órfão à espera de dono
         ]);
     }
 }
