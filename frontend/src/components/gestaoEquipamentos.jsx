@@ -278,9 +278,12 @@ export default function GestaoEquipamentos({ isHelpMode, onAtualizar }) {
 
     // Removida lógica antiga de pollingTimeMs
 
-    useEffect(() => { 
-        carregarDadosIniciais(); 
-        
+    useEffect(() => {
+        carregarDadosIniciais();
+
+        const handleSubAbaChange = (e) => setSubAba(e.detail);
+        window.addEventListener('change-subaba', handleSubAbaChange);
+
         const hostname = window.location.hostname;
         const wsUrl = import.meta.env.VITE_WS_URL || `http://${hostname}:3001`;
         const socket = io(wsUrl);
@@ -302,6 +305,7 @@ export default function GestaoEquipamentos({ isHelpMode, onAtualizar }) {
         });
 
         return () => {
+            window.removeEventListener('change-subaba', handleSubAbaChange);
             socket.disconnect();
         };
     }, [subAba]);

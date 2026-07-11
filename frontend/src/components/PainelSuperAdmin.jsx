@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../api';
+import { io } from 'socket.io-client';
 import Tooltip from './Tooltip';
 import HelpPin from './HelpPin';
 
@@ -18,7 +19,23 @@ export default function PainelSuperAdmin({ onAbaChange, isHelpMode }) {
     const [entidadeSelecionada, setEntidadeSelecionada] = useState(null);
     const [novoUtilizador, setNovoUtilizador] = useState({ name: '', email: '', password: '', role: 'leitor_empresa', empresa_id: '' });
 
-    useEffect(() => { carregarDados(); }, []);
+    useEffect(() => { 
+        carregarDados(); 
+
+        const hostname = window.location.hostname;
+        const wsUrl = import.meta.env.VITE_WS_URL || `http://${hostname}:3001`;
+        const socket = io(wsUrl);
+
+        socket.on('connect', () => {
+            socket.emit('join-company', 'super_admin');
+        });
+
+        socket.on('perfil-atualizado', () => {
+            carregarDados();
+        });
+
+        return () => socket.disconnect();
+    }, []);
 
     const carregarDados = async () => {
         try {

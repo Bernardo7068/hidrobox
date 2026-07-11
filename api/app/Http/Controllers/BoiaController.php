@@ -125,6 +125,8 @@ class BoiaController extends Controller
         // Tentar vincular boias órfãs que já usam este MAC
         DB::table('boias')->where('mac_gateway', $gateway->mac_gateway)->update(['gateway_id' => $gateway->id]);
 
+        $this->notifyHardwareUpdate($gateway->is_public ? 'all' : $gateway->empresa_id);
+
         return response()->json(['sucesso' => true, 'gateway' => $gateway], 201);
     }
 
@@ -155,6 +157,9 @@ class BoiaController extends Controller
         }
 
         $gateway->update($validated);
+        
+        $this->notifyHardwareUpdate($gateway->is_public ? 'all' : $gateway->empresa_id);
+
         return response()->json(['sucesso' => true, 'gateway' => $gateway]);
     }
 
@@ -164,6 +169,9 @@ class BoiaController extends Controller
         // Desvincular boias
         DB::table('boias')->where('gateway_id', $gateway->id)->update(['gateway_id' => null]);
         $gateway->delete();
+        
+        $this->notifyHardwareUpdate('all');
+
         return response()->json(['sucesso' => true, 'mensagem' => 'Gateway removido.']);
     }
 
@@ -232,6 +240,19 @@ class BoiaController extends Controller
         })->with(['zona', 'limites.tipo_sensor'])->get();
 
         return response()->json($boiasFiltradas);
+    }
+
+    private function notifyHardwareUpdate($empresaId = 'all')
+    {
+        try {
+            Http::timeout(2)->withHeaders([
+                'x-internal-token' => env('INTERNAL_API_SECRET', 'chave-secreta-interna-hidrobox')
+            ])->post(env('WS_BROADCAST_URL', 'http://localhost:3001/api/broadcast'), [
+                'empresa_id' => $empresaId ?? 'all',
+                'event'      => 'nova-leitura', // Reutilizamos este evento para forçar o frontend a recarregar o mapa
+                'data'       => ['refresh' => true]
+            ]);
+        } catch (\Exception $e) {}
     }
 
     public function getZonas(Request $request)
@@ -345,6 +366,8 @@ class BoiaController extends Controller
             'estado'            => 'ativa',
             'bateria'           => 100
         ]);
+
+        $this->notifyHardwareUpdate($user->role === 'super_admin' ? 'all' : $user->empresa_id);
 
         return response()->json(['sucesso' => true, 'boia' => $boia], 201);
     }
@@ -536,6 +559,8 @@ class BoiaController extends Controller
 
         $boia->update($validated);
 
+        $this->notifyHardwareUpdate($user->role === 'super_admin' ? 'all' : $user->empresa_id);
+
         return response()->json(['sucesso' => true, 'mensagem' => 'Estação atualizada com sucesso!', 'boia' => $boia]);
     }
 
@@ -559,6 +584,8 @@ class BoiaController extends Controller
         $boia->leituras()->delete();
         
         $boia->delete();
+
+        $this->notifyHardwareUpdate($user->role === 'super_admin' ? 'all' : $user->empresa_id);
 
         return response()->json(['sucesso' => true, 'mensagem' => 'Estação removida com sucesso.']);
     }

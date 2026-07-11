@@ -64,25 +64,37 @@ export default function Dashboard({ onLogout, user, setUser }) {
       target: '#aba-monitorizacao',
       title: 'Monitorização em Tempo Real',
       content: 'Vê o estado atual de cada boia, incluindo o nível de bateria e a força do sinal LoRa.',
-      onBefore: () => setAbaAtiva('equipamentos')
+      onBefore: () => {
+          setAbaAtiva('equipamentos');
+          window.dispatchEvent(new CustomEvent('change-subaba', { detail: 'inventario' }));
+      }
     },
     (user.role === 'admin_empresa' || user.role === 'super_admin' || user.role === 'tecnico_empresa') ? {
       target: '#aba-novo-registo',
       title: 'Registar Novo Aparelho',
       content: 'Usa este formulário passo-a-passo para adicionar uma nova boia ao sistema e configurar os seus sensores iniciais.',
-      onBefore: () => setAbaAtiva('equipamentos')
+      onBefore: () => {
+          setAbaAtiva('equipamentos');
+          window.dispatchEvent(new CustomEvent('change-subaba', { detail: 'nova' }));
+      }
     } : null,
     {
       target: '#aba-hub-rede',
       title: 'Hub de Rede (Antenas)',
       content: 'Gere os teus Pontos de Rede (Gateways). Lembra-te: as boias precisam de estar dentro do raio de alcance destas antenas!',
-      onBefore: () => setAbaAtiva('equipamentos')
+      onBefore: () => {
+          setAbaAtiva('equipamentos');
+          window.dispatchEvent(new CustomEvent('change-subaba', { detail: 'rede' }));
+      }
     },
     (user.role === 'admin_empresa' || user.role === 'super_admin' || user.role === 'tecnico_empresa') ? {
       target: '#aba-agenda-tecnica',
       title: 'Agenda de Manutenção',
       content: 'Vigia a saúde física do teu hardware e sabe exatamente quando é necessário ir ao rio limpar ou calibrar os sensores.',
-      onBefore: () => setAbaAtiva('equipamentos')
+      onBefore: () => {
+          setAbaAtiva('equipamentos');
+          window.dispatchEvent(new CustomEvent('change-subaba', { detail: 'agenda' }));
+      }
     } : null,
     user.role === 'admin_empresa' || user.role === 'super_admin' ? {
       target: user.role === 'super_admin' ? '#sidebar-super-admin' : '#sidebar-admin-empresa',
